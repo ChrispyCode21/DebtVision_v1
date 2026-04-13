@@ -149,17 +149,13 @@ function computePriorityScore(
   return round2(sPromo + sRetro + sEffective + sBase)
 }
 
-// ─── Main simulation ───────────────────────────────────────────────────────
-
-export function runSimulation(
+function simulateScenario(
   debts: Debt[],
   availableMonthlyBudget: number,
   strategy: Strategy,
-  startDate?: Date,
+  simStart: Date,
+  allocateExtraPayments: boolean,
 ): SimulationResult {
-  const simStart = startDate ?? new Date()
-
-  // Separate zero-monthly cards
   const zeroMonthlyCards = debts.filter(d => d.zeroMonthly)
   const optimizableDebts = debts.filter(d => !d.zeroMonthly)
 
@@ -386,16 +382,18 @@ export function runSimulation(
       }
 
       // Allocate extra pool by priority
-      extraPool = round2(extraPool)
-      for (const { debt } of scoredDebts) {
-        if (extraPool <= 0) break
-        if (debt.balance <= 0) continue
+      if (allocateExtraPayments) {
+        extraPool = round2(extraPool)
+        for (const { debt } of scoredDebts) {
+          if (extraPool <= 0) break
+          if (debt.balance <= 0) continue
 
-        const payment = Math.min(extraPool, debt.balance)
-        debt.balance = round2(debt.balance - payment)
-        debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
-        extraPool = round2(extraPool - payment)
-        monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'extra' })
+          const payment = Math.min(extraPool, debt.balance)
+          debt.balance = round2(debt.balance - payment)
+          debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
+          extraPool = round2(extraPool - payment)
+          monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'extra' })
+        }
       }
     }
 
@@ -524,7 +522,26 @@ export function runSimulation(
     debtSummaries,
     totalMonths: month,
     totalInterestPaid: round2(totalInterestPaid),
-    interestSaved: 0, // filled in by computeDebtPlan
+    interestSaved: 0,
     warnings,
+  }
+}
+
+// ─── Main simulation ───────────────────────────────────────────────────────
+
+export function runSimulation(
+  debts: Debt[],
+  availableMonthlyBudget: number,
+  strategy: Strategy,
+  startDate?: Date,
+): SimulationResult {
+  const simStart = startDate ?? new Date()
+  const primary = simulateScenario(debts, availableMonthlyBudget, strategy, simStart, true)
+  const baseline = simulateScenario(debts, availableMonthlyBudget, strategy, simStart, false)
+  const interestSaved = round2(Math.max(0, baseline.totalInterestPaid - primary.totalInterestPaid))
+
+  return {
+    ...primary,
+    interestSaved,
   }
 }
