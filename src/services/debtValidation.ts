@@ -4,6 +4,16 @@ function isFiniteNumber(value: number): boolean {
   return Number.isFinite(value)
 }
 
+export function parseOptionalNumber(value: string): number | null {
+  const trimmedValue = value.trim()
+  if (trimmedValue === '') {
+    return null
+  }
+
+  const parsedValue = parseFloat(trimmedValue)
+  return Number.isFinite(parsedValue) ? parsedValue : null
+}
+
 export function getTodayDateString(): string {
   const today = new Date()
   const year = today.getFullYear()

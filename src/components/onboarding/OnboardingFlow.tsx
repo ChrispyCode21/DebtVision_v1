@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { BudgetContext, Debt, Strategy, AppState } from '@/types'
-import { DEFAULT_APP_STATE } from '@/services/defaults'
+import { DEFAULT_APP_STATE, createEmptyDebt } from '@/services/defaults'
 import { saveState } from '@/services/storage'
 import Stepper from '@/components/shared/Stepper'
 import Button from '@/components/shared/Button'
@@ -29,21 +29,6 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [strategy, setStrategy] = useState<Strategy>('avalanche')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-
-  function createEmptyDebt(): Debt {
-    return {
-      id: crypto.randomUUID(),
-      name: '',
-      balance: 0,
-      limit: null,
-      apr: 0,
-      minPayment: 0,
-      zeroMonthly: false,
-      promoApr: null,
-      promoExpiration: null,
-      retroactiveInterest: false,
-    }
-  }
 
   function validateBudget(): boolean {
     const errs: Record<string, string> = {}

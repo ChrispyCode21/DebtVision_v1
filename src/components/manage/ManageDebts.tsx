@@ -1,40 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { Debt } from '@/types'
-import Input from '@/components/shared/Input'
+import { createEmptyDebt } from '@/services/defaults'
+import { getDebtValidationErrors, getTodayDateString } from '@/services/debtValidation'
 import Button from '@/components/shared/Button'
 import Card from '@/components/shared/Card'
-import Toggle from '@/components/shared/Toggle'
-import ExpandableSection from '@/components/shared/ExpandableSection'
-import { getDebtValidationErrors, getTodayDateString } from '@/services/debtValidation'
+import TrashIcon from '@/components/shared/TrashIcon'
+import DebtFormFields from '@/components/shared/DebtFormFields'
 
 interface ManageDebtsProps {
   debts: Debt[]
   onChange: (debts: Debt[]) => void
-}
-
-function createEmptyDebt(): Debt {
-  return {
-    id: crypto.randomUUID(),
-    name: '',
-    balance: 0,
-    limit: null,
-    apr: 0,
-    minPayment: 0,
-    zeroMonthly: false,
-    promoApr: null,
-    promoExpiration: null,
-    retroactiveInterest: false,
-  }
-}
-
-function parseOptionalNumber(value: string): number | null {
-  const trimmedValue = value.trim()
-  if (trimmedValue === '') {
-    return null
-  }
-
-  const parsedValue = parseFloat(trimmedValue)
-  return Number.isFinite(parsedValue) ? parsedValue : null
 }
 
 export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
@@ -127,112 +102,19 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                       className="min-h-[44px] px-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                       aria-label={`Remove ${debt.name || `Debt ${index + 1}`}`}
                     >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
+                      <TrashIcon />
                     </button>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Core fields — always visible */}
-            <div className="space-y-4">
-              <Input
-                label="Debt Name"
-                placeholder="e.g., Chase Visa"
-                value={debt.name}
-                onChange={v => updateDebt(debt.id, { name: v })}
-              />
-
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Balance"
-                  currency
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="0.00"
-                  value={debt.balance || ''}
-                  onChange={v => updateDebt(debt.id, { balance: parseFloat(v) || 0 })}
-                  error={validationErrors[`${debt.id}-balance`]}
-                />
-                <Input
-                  label="APR %"
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.01"
-                  placeholder="0.00"
-                  value={debt.apr || ''}
-                  onChange={v => updateDebt(debt.id, { apr: parseFloat(v) || 0 })}
-                  error={validationErrors[`${debt.id}-apr`]}
-                />
-              </div>
-
-              <Input
-                label="Minimum Payment"
-                currency
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="0.00"
-                value={debt.minPayment || ''}
-                onChange={v => updateDebt(debt.id, { minPayment: parseFloat(v) || 0 })}
-                error={validationErrors[`${debt.id}-minPayment`]}
-              />
-
-              {/* Advanced / promo fields */}
-              <ExpandableSection title="Advanced Options">
-                <div className="space-y-4">
-                  <Input
-                    label="Promo APR %"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    placeholder="Leave blank if none"
-                    value={debt.promoApr ?? ''}
-                    onChange={v =>
-                      updateDebt(debt.id, { promoApr: parseOptionalNumber(v) })
-                    }
-                    error={validationErrors[`${debt.id}-promoApr`]}
-                  />
-                  <Input
-                    label="Promo Expiration"
-                    type="date"
-                    min={todayDate}
-                    value={debt.promoExpiration ?? ''}
-                    onChange={v =>
-                      updateDebt(debt.id, { promoExpiration: v || null })
-                    }
-                    error={validationErrors[`${debt.id}-promoExpiration`]}
-                  />
-                  <Toggle
-                    label="Retroactive Interest"
-                    description="Interest charged on full original balance if not paid off before promo ends"
-                    checked={debt.retroactiveInterest}
-                    onChange={v => updateDebt(debt.id, { retroactiveInterest: v })}
-                  />
-                  <Toggle
-                    label="Zero Monthly Payment"
-                    description="No monthly payment required (e.g., buy-now-pay-later)"
-                    checked={debt.zeroMonthly}
-                    onChange={v => updateDebt(debt.id, { zeroMonthly: v })}
-                  />
-                </div>
-              </ExpandableSection>
-            </div>
+            <DebtFormFields
+              debt={debt}
+              todayDate={todayDate}
+              errors={validationErrors}
+              onUpdate={updateDebt}
+            />
           </Card>
         ))}
       </div>
