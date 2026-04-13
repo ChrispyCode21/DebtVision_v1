@@ -27,6 +27,16 @@ function createEmptyDebt(): Debt {
   }
 }
 
+function parseOptionalNumber(value: string): number | null {
+  const trimmedValue = value.trim()
+  if (trimmedValue === '') {
+    return null
+  }
+
+  const parsedValue = parseFloat(trimmedValue)
+  return Number.isFinite(parsedValue) ? parsedValue : null
+}
+
 export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
   const totalBalance = debts.reduce((sum, d) => sum + d.balance, 0)
   const todayDate = getTodayDateString()
@@ -140,7 +150,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                     step="0.01"
                     placeholder="Leave blank if none"
                     value={debt.promoApr ?? ''}
-                    onChange={v => updateDebt(debt.id, { promoApr: v ? parseFloat(v) : null })}
+                    onChange={v => updateDebt(debt.id, { promoApr: parseOptionalNumber(v) })}
                     error={errors[`${debt.id}-promoApr`] ?? localErrors[`${debt.id}-promoApr`]}
                   />
                   <Input

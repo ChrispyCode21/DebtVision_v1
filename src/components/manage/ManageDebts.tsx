@@ -27,6 +27,16 @@ function createEmptyDebt(): Debt {
   }
 }
 
+function parseOptionalNumber(value: string): number | null {
+  const trimmedValue = value.trim()
+  if (trimmedValue === '') {
+    return null
+  }
+
+  const parsedValue = parseFloat(trimmedValue)
+  return Number.isFinite(parsedValue) ? parsedValue : null
+}
+
 export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const todayDate = getTodayDateString()
@@ -194,7 +204,7 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                     placeholder="Leave blank if none"
                     value={debt.promoApr ?? ''}
                     onChange={v =>
-                      updateDebt(debt.id, { promoApr: v ? parseFloat(v) : null })
+                      updateDebt(debt.id, { promoApr: parseOptionalNumber(v) })
                     }
                     error={validationErrors[`${debt.id}-promoApr`]}
                   />
