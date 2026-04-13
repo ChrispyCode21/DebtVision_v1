@@ -261,7 +261,7 @@ export function runSimulation(
       if (!debt.active) continue
 
       const rate = getEffectiveRate(debt, month)
-      let monthlyInterest = round2(debt.balance * (rate / 12 / 100))
+      const monthlyInterest = round2(debt.balance * (rate / 12 / 100))
 
       debt.balance = round2(debt.balance + monthlyInterest)
       debt.totalInterestPaid = round2(debt.totalInterestPaid + monthlyInterest)
