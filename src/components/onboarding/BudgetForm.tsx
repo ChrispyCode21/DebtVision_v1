@@ -1,18 +1,12 @@
 import { useMemo } from 'react'
 import type { BudgetContext, FixedExpense, IncomeFrequency } from '@/types'
+import { FREQUENCY_OPTIONS } from '@/services/defaults'
 import { toMonthlyIncome } from '@/services/income'
 import Input from '@/components/shared/Input'
 import Select from '@/components/shared/Select'
 import Button from '@/components/shared/Button'
 import Card from '@/components/shared/Card'
-
-const FREQUENCY_OPTIONS = [
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'biweekly', label: 'Every Two Weeks' },
-  { value: 'semi-monthly', label: 'Twice a Month' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'annually', label: 'Annually' },
-]
+import TrashIcon from '@/components/shared/TrashIcon'
 
 interface BudgetFormProps {
   budget: BudgetContext
@@ -136,9 +130,7 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
                   className="min-h-[44px] px-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
                   aria-label={`Remove ${expense.name || 'expense'}`}
                 >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
+                  <TrashIcon />
                 </button>
               </div>
             </Card>
