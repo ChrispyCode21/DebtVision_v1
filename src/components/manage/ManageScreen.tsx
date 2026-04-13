@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { BudgetContext, Debt, Strategy } from '@/types'
-import { useAppContext } from '@/context/AppContext'
+import { useAppContext } from '@/context/app-context'
 import ManageBudget from './ManageBudget'
 import ManageDebts from './ManageDebts'
 import Button from '@/components/shared/Button'
@@ -14,13 +14,6 @@ export default function ManageScreen() {
   const [draftStrategy, setDraftStrategy] = useState<Strategy>(state.strategy)
 
   const [savedMessage, setSavedMessage] = useState(false)
-
-  // Sync drafts if parent state changes from outside (e.g., initial load)
-  useEffect(() => {
-    setDraftBudget(state.budgetContext)
-    setDraftDebts(state.debts)
-    setDraftStrategy(state.strategy)
-  }, [state.budgetContext, state.debts, state.strategy])
 
   function handleSave() {
     dispatch({ type: 'SET_BUDGET', payload: draftBudget })
