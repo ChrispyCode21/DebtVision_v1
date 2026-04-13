@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import type { BudgetContext, Debt, Strategy, AppState } from '@/types'
 import { DEFAULT_APP_STATE } from '@/services/defaults'
 import { saveState } from '@/services/storage'
@@ -45,14 +45,14 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     }
   }
 
-  const validateBudget = useCallback((): boolean => {
+  function validateBudget(): boolean {
     const errs: Record<string, string> = {}
     if (budget.netIncome <= 0) errs.netIncome = 'Income must be greater than 0'
     setErrors(errs)
     return Object.keys(errs).length === 0
-  }, [budget])
+  }
 
-  const validateDebts = useCallback((): boolean => {
+  function validateDebts(): boolean {
     const errs: Record<string, string> = {}
     if (debts.length === 0) errs.debts = 'Add at least one debt'
     debts.forEach(d => {
@@ -61,7 +61,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     })
     setErrors(errs)
     return Object.keys(errs).length === 0
-  }, [debts])
+  }
 
   function goNext() {
     if (step === 2 && !validateBudget()) return

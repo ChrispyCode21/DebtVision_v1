@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { AppProvider, useAppContext } from '@/context/AppContext'
+import { AppProvider } from '@/context/AppContext'
+import { useAppContext } from '@/context/app-context'
 import { loadState } from '@/services/storage'
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow'
 import Dashboard from '@/components/dashboard/Dashboard'

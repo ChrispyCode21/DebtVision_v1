@@ -1,25 +1,16 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useMemo,
   useReducer,
   type ReactNode,
 } from 'react'
-import type { AppState, BudgetContext, Debt, Strategy } from '@/types'
+import type { AppState } from '@/types'
 import { loadState, saveState } from '@/services/storage'
 import { DEFAULT_APP_STATE } from '@/services/defaults'
 import { toMonthlyIncome } from '@/services/income'
+import { AppContext, type AppAction } from './app-context'
 
 // ─── Actions ────────────────────────────────────────────────────────────────
-
-type AppAction =
-  | { type: 'SET_BUDGET'; payload: BudgetContext }
-  | { type: 'SET_DEBTS'; payload: Debt[] }
-  | { type: 'SET_STRATEGY'; payload: Strategy }
-  | { type: 'COMPLETE_ONBOARDING' }
-  | { type: 'LOAD_STATE'; payload: AppState }
-  | { type: 'RESET' }
 
 // ─── Reducer ─────────────────────────────────────────────────────────────────
 
@@ -43,14 +34,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
-
-interface AppContextValue {
-  state: AppState
-  dispatch: React.Dispatch<AppAction>
-  derivedBudget: number
-}
-
-const AppContext = createContext<AppContextValue | null>(null)
 
 // ─── Provider ────────────────────────────────────────────────────────────────
 
@@ -78,21 +61,11 @@ export function AppProvider({ children }: AppProviderProps) {
       0,
     )
     return Math.max(0, monthlyIncome - totalExpenses)
-  }, [state.budgetContext])
+  }, [state])
 
   return (
     <AppContext.Provider value={{ state, dispatch, derivedBudget }}>
       {children}
     </AppContext.Provider>
   )
-}
-
-// ─── Hook ────────────────────────────────────────────────────────────────────
-
-export function useAppContext(): AppContextValue {
-  const ctx = useContext(AppContext)
-  if (!ctx) {
-    throw new Error('useAppContext must be used within an AppProvider')
-  }
-  return ctx
 }
