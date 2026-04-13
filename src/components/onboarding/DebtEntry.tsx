@@ -4,6 +4,7 @@ import Button from '@/components/shared/Button'
 import Card from '@/components/shared/Card'
 import Toggle from '@/components/shared/Toggle'
 import ExpandableSection from '@/components/shared/ExpandableSection'
+import { getDebtValidationErrors, getTodayDateString } from '@/services/debtValidation'
 
 interface DebtEntryProps {
   debts: Debt[]
@@ -26,8 +27,20 @@ function createEmptyDebt(): Debt {
   }
 }
 
+function parseOptionalNumber(value: string): number | null {
+  const trimmedValue = value.trim()
+  if (trimmedValue === '') {
+    return null
+  }
+
+  const parsedValue = parseFloat(trimmedValue)
+  return Number.isFinite(parsedValue) ? parsedValue : null
+}
+
 export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
   const totalBalance = debts.reduce((sum, d) => sum + d.balance, 0)
+  const todayDate = getTodayDateString()
+  const localErrors = getDebtValidationErrors(debts, todayDate)
 
   function updateDebt(id: string, updates: Partial<Debt>) {
     onChange(debts.map(d => (d.id === id ? { ...d, ...updates } : d)))
@@ -100,7 +113,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                   placeholder="0.00"
                   value={debt.balance || ''}
                   onChange={v => updateDebt(debt.id, { balance: parseFloat(v) || 0 })}
-                  error={errors[`${debt.id}-balance`]}
+                  error={errors[`${debt.id}-balance`] ?? localErrors[`${debt.id}-balance`]}
                 />
                 <Input
                   label="APR %"
@@ -111,7 +124,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                   placeholder="0.00"
                   value={debt.apr || ''}
                   onChange={v => updateDebt(debt.id, { apr: parseFloat(v) || 0 })}
-                  error={errors[`${debt.id}-apr`]}
+                  error={errors[`${debt.id}-apr`] ?? localErrors[`${debt.id}-apr`]}
                 />
               </div>
 
@@ -124,7 +137,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                 placeholder="0.00"
                 value={debt.minPayment || ''}
                 onChange={v => updateDebt(debt.id, { minPayment: parseFloat(v) || 0 })}
-                error={errors[`${debt.id}-minPayment`]}
+                error={errors[`${debt.id}-minPayment`] ?? localErrors[`${debt.id}-minPayment`]}
               />
 
               <ExpandableSection title="Advanced Options">
@@ -137,13 +150,16 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                     step="0.01"
                     placeholder="Leave blank if none"
                     value={debt.promoApr ?? ''}
-                    onChange={v => updateDebt(debt.id, { promoApr: v ? parseFloat(v) : null })}
+                    onChange={v => updateDebt(debt.id, { promoApr: parseOptionalNumber(v) })}
+                    error={errors[`${debt.id}-promoApr`] ?? localErrors[`${debt.id}-promoApr`]}
                   />
                   <Input
                     label="Promo Expiration"
                     type="date"
+                    min={todayDate}
                     value={debt.promoExpiration ?? ''}
                     onChange={v => updateDebt(debt.id, { promoExpiration: v || null })}
+                    error={errors[`${debt.id}-promoExpiration`] ?? localErrors[`${debt.id}-promoExpiration`]}
                   />
                   <Toggle
                     label="Retroactive Interest"

@@ -32,6 +32,17 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
   )
 
   const availableBudget = Math.max(0, monthlyIncome - totalExpenses)
+  const expenseErrors = useMemo(
+    () =>
+      budget.fixedExpenses.reduce<Record<string, string>>((acc, expense) => {
+        if (expense.amount < 0) {
+          acc[expense.id] = 'Expense amount cannot be negative.'
+        }
+        return acc
+      }, {}),
+    [budget.fixedExpenses],
+  )
+  const netIncomeError = errors.netIncome ?? (budget.netIncome < 0 ? 'Take-home pay cannot be negative.' : undefined)
 
   function updateField<K extends keyof BudgetContext>(key: K, value: BudgetContext[K]) {
     onChange({ ...budget, [key]: value })
@@ -74,7 +85,7 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
           placeholder="0.00"
           value={budget.netIncome || ''}
           onChange={v => updateField('netIncome', parseFloat(v) || 0)}
-          error={errors.netIncome}
+          error={netIncomeError}
         />
         <Select
           label="Pay Frequency"
@@ -116,6 +127,7 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
                   placeholder="0.00"
                   value={expense.amount || ''}
                   onChange={v => updateExpense(expense.id, 'amount', parseFloat(v) || 0)}
+                  error={expenseErrors[expense.id]}
                   className="w-32"
                 />
                 <button
