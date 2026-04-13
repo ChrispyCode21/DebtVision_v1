@@ -1,3 +1,4 @@
+import { WarningType } from '@/types'
 import type { Debt, Strategy, SimulationResult, MonthDirective, MonthEntry, DebtSummary, Warning, PaymentDirective, DebtMonthSnapshot } from '@/types'
 
 // ─── Utility ───────────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ export function runSimulation(
   // Edge case 10: no optimizable debts
   if (optimizableDebts.length === 0) {
     warnings.push({
-      type: 'NO_OPTIMIZABLE_DEBTS',
+      type: WarningType.NO_OPTIMIZABLE_DEBTS,
       severity: 'info',
       debtId: null,
       month: null,
@@ -214,7 +215,7 @@ export function runSimulation(
   const totalMins = activeDebts.reduce((s, d) => s + d.minPayment, 0)
   if (effectiveBudget < totalMins) {
     warnings.push({
-      type: 'BUDGET_SHORTFALL',
+      type: WarningType.BUDGET_SHORTFALL,
       severity: 'critical',
       debtId: null,
       month: null,
@@ -224,7 +225,7 @@ export function runSimulation(
     for (const d of activeDebts) {
       if (d.minPayment > effectiveBudget) {
         warnings.push({
-          type: 'MINIMUM_EXCEEDS_BUDGET',
+          type: WarningType.MINIMUM_EXCEEDS_BUDGET,
           severity: 'critical',
           debtId: d.id,
           month: null,
@@ -234,7 +235,7 @@ export function runSimulation(
     }
   } else if (effectiveBudget === totalMins) {
     warnings.push({
-      type: 'NO_EXTRA_BUDGET',
+      type: WarningType.NO_EXTRA_BUDGET,
       severity: 'warning',
       debtId: null,
       month: null,
@@ -288,7 +289,7 @@ export function runSimulation(
         retroactiveInterest[debt.id] = deferredInterest
 
         warnings.push({
-          type: 'RETROACTIVE_INTEREST_APPLIED',
+          type: WarningType.RETROACTIVE_INTEREST_APPLIED,
           severity: 'critical',
           debtId: debt.id,
           month,
@@ -321,7 +322,7 @@ export function runSimulation(
         if (debt.balance > maxPayoffCapacity) {
           retroWarned.add(debt.id)
           warnings.push({
-            type: 'RETROACTIVE_INTEREST_AT_RISK',
+            type: WarningType.RETROACTIVE_INTEREST_AT_RISK,
             severity: 'critical',
             debtId: debt.id,
             month,
@@ -501,7 +502,7 @@ export function runSimulation(
   // Check simulation cap
   if (month >= 600 && activeDebts.some(d => d.active)) {
     warnings.push({
-      type: 'SIMULATION_CAP_REACHED',
+      type: WarningType.SIMULATION_CAP_REACHED,
       severity: 'critical',
       debtId: null,
       month: 600,
