@@ -78,10 +78,22 @@ export interface DebtSummary {
   payoffMonth: number
 }
 
+export const WarningType = {
+  NO_OPTIMIZABLE_DEBTS: 'NO_OPTIMIZABLE_DEBTS',
+  BUDGET_SHORTFALL: 'BUDGET_SHORTFALL',
+  MINIMUM_EXCEEDS_BUDGET: 'MINIMUM_EXCEEDS_BUDGET',
+  NO_EXTRA_BUDGET: 'NO_EXTRA_BUDGET',
+  RETROACTIVE_INTEREST_APPLIED: 'RETROACTIVE_INTEREST_APPLIED',
+  RETROACTIVE_INTEREST_AT_RISK: 'RETROACTIVE_INTEREST_AT_RISK',
+  SIMULATION_CAP_REACHED: 'SIMULATION_CAP_REACHED',
+} as const
+
+export type WarningType = (typeof WarningType)[keyof typeof WarningType]
+
 export type WarningSeverity = 'info' | 'warning' | 'critical'
 
 export interface Warning {
-  type: string
+  type: WarningType
   debtId: string | null
   message: string
   severity: WarningSeverity
