@@ -100,6 +100,13 @@ Tests cover:
 - Avalanche vs. snowball ordering
 - Edge cases (zero-balance debts, zero-APR, immediate payoff)
 
+## Known Limitations
+
+- **localStorage only** — Data is stored in the browser's localStorage. Clearing browser data will erase all saved information. There is no backend or cloud sync.
+- **No export** — There is currently no way to export or print the payoff plan (PDF, CSV, etc.).
+- **Single strategy view** — The app displays the plan for the selected strategy only. There is no side-by-side comparison of avalanche vs. snowball.
+- **No mobile chart optimization** — Charts use fixed heights and may be hard to read on very small screens with many debts.
+
 ## Specification Documents
 
 - `DebtVision_V1_Spec.md` — Product specification (UX flows, screen layouts, features)
