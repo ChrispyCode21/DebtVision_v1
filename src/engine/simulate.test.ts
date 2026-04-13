@@ -571,3 +571,48 @@ describe('action plan structure', () => {
     expect(lastDirective.milestones[0]).toContain('TestDebt')
   })
 })
+
+// ─── Rounding Accumulation in Budget Shortfall ─────────────────────────────
+
+describe('budget shortfall rounding accumulation', () => {
+  // 3 debts whose proportional shares trigger rounding accumulation.
+  // minPayments: $33.33 + $33.33 + $33.34 = $100.00 total
+  // budget = $100, which is exactly totalMins, BUT we set balances low enough
+  // that the engine sees budget < totalMinimumsRequired after capping by balance.
+  // Actually, to trigger shortfall we need budget < totalMinimumsRequired.
+  // Use minPayments that sum to more than the budget.
+  const debts = [
+    makeDbt({ id: 'd1', name: 'D1', balance: 5000, apr: 18, minPayment: 33.33 }),
+    makeDbt({ id: 'd2', name: 'D2', balance: 5000, apr: 18, minPayment: 33.33 }),
+    makeDbt({ id: 'd3', name: 'D3', balance: 5000, apr: 18, minPayment: 33.34 }),
+  ]
+  // Budget $50 is less than total minimums ($100), triggering shortfall allocation
+  const budget = 50
+  const result = runSimulation(debts, budget, 'avalanche', START)
+
+  it('triggers budget shortfall', () => {
+    expect(result.warnings.some(w => w.type === 'BUDGET_SHORTFALL')).toBe(true)
+  })
+
+  it('month 1 total payment equals budget exactly (no rounding over-allocation)', () => {
+    const m1 = result.schedule[0]
+    // The sum of all payments must not exceed the budget
+    expect(m1.totalPayment).toBeLessThanOrEqual(budget + 0.01)
+    // And it should use the full budget (within a cent)
+    expect(m1.totalPayment).toBeGreaterThanOrEqual(budget - 0.01)
+  })
+
+  it('no negative balances after shortfall allocation', () => {
+    for (const entry of result.schedule) {
+      for (const snap of entry.debts) {
+        expect(snap.balance).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+
+  it('proportional shares sum to budget after remainder distribution', () => {
+    const m1 = result.schedule[0]
+    const totalPaid = m1.debts.reduce((sum, d) => sum + d.paymentMade, 0)
+    expect(round2(totalPaid)).toBe(budget)
+  })
+})

@@ -343,29 +343,44 @@ function simulateScenario(
         .reduce((s, d) => s + d.minPayment, 0)
 
       if (totalMinsForProportion > 0) {
-        let remainingBudget = effectiveBudget
+        let totalAllocated = 0
         for (const debt of activeDebts) {
           if (!debt.active) continue
           const share = round2((debt.minPayment / totalMinsForProportion) * effectiveBudget)
           const payment = Math.min(share, debt.balance)
           debt.balance = round2(debt.balance - payment)
           debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
-          remainingBudget -= payment
+          totalAllocated += payment
           monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'minimum_partial' })
         }
-        // Distribute rounding remainder
-        if (remainingBudget > 0.005) {
+        // Distribute rounding remainder (positive = under-allocated, negative = over-allocated)
+        const remainder = round2(effectiveBudget - totalAllocated)
+        if (remainder > 0.005) {
+          // Under-allocated: give leftover cents to highest-balance debt
           const highestBalanceDebt = activeDebts
             .filter(d => d.active && d.balance > 0)
             .sort((a, b) => b.balance - a.balance)[0]
           if (highestBalanceDebt) {
-            const adj = round2(remainingBudget)
+            const adj = Math.min(remainder, highestBalanceDebt.balance)
             highestBalanceDebt.balance = round2(highestBalanceDebt.balance - adj)
             highestBalanceDebt.totalAmountPaid = round2(highestBalanceDebt.totalAmountPaid + adj)
-            // Update existing payment record
             const existingPayment = monthPayments.find(p => p.debtId === highestBalanceDebt.id)
             if (existingPayment) {
               existingPayment.amount = round2(existingPayment.amount + adj)
+            }
+          }
+        } else if (remainder < -0.005) {
+          // Over-allocated: claw back excess from highest-balance debt
+          const highestBalanceDebt = activeDebts
+            .filter(d => d.active)
+            .sort((a, b) => b.balance - a.balance)[0]
+          if (highestBalanceDebt) {
+            const excess = round2(-remainder)
+            const existingPayment = monthPayments.find(p => p.debtId === highestBalanceDebt.id)
+            if (existingPayment && existingPayment.amount >= excess) {
+              highestBalanceDebt.balance = round2(highestBalanceDebt.balance + excess)
+              highestBalanceDebt.totalAmountPaid = round2(highestBalanceDebt.totalAmountPaid - excess)
+              existingPayment.amount = round2(existingPayment.amount - excess)
             }
           }
         }
