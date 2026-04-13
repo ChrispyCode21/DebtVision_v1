@@ -6,6 +6,7 @@ import ActionPlan from './ActionPlan'
 import PayoffTimeline from './PayoffTimeline'
 import PaymentAllocation from './PaymentAllocation'
 import DebtPayoffCards from './DebtPayoffCards'
+import ChartErrorBoundary from './ChartErrorBoundary'
 
 interface DashboardProps {
   debts: Debt[]
@@ -15,6 +16,9 @@ interface DashboardProps {
 
 export default function Dashboard({ debts, monthlyBudget, strategy }: DashboardProps) {
   const result = useSimulation(debts, monthlyBudget, strategy)
+  const chartResetKey = `${strategy}:${monthlyBudget}:${debts
+    .map((debt) => `${debt.id}:${debt.balance}:${debt.minPayment}:${debt.apr}`)
+    .join('|')}`
 
   // Build a map of debt ID → name for the chart components
   const debtNames: Record<string, string> = {}
@@ -73,7 +77,9 @@ export default function Dashboard({ debts, monthlyBudget, strategy }: DashboardP
       <section aria-label="Debt balance over time">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Payoff Timeline</h2>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <PayoffTimeline schedule={result.schedule} debtNames={debtNames} />
+          <ChartErrorBoundary title="Payoff timeline" resetKeys={[chartResetKey]}>
+            <PayoffTimeline schedule={result.schedule} debtNames={debtNames} />
+          </ChartErrorBoundary>
         </div>
       </section>
 
@@ -81,7 +87,9 @@ export default function Dashboard({ debts, monthlyBudget, strategy }: DashboardP
       <section aria-label="Monthly payment allocation">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Payment Allocation</h2>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <PaymentAllocation schedule={result.schedule} debtNames={debtNames} />
+          <ChartErrorBoundary title="Payment allocation" resetKeys={[chartResetKey]}>
+            <PaymentAllocation schedule={result.schedule} debtNames={debtNames} />
+          </ChartErrorBoundary>
         </div>
       </section>
 
