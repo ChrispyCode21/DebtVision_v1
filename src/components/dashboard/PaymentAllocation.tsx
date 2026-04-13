@@ -65,11 +65,11 @@ export default function PaymentAllocation({ schedule, debtNames }: PaymentAlloca
             width={72}
           />
           <Tooltip
-            formatter={(value: number | string, name: string) => [
+            formatter={(value, name) => [
               formatCurrency(Number(value)),
-              debtNames[name] ?? name,
+              debtNames[String(name)] ?? String(name),
             ]}
-            labelFormatter={(label: string | number) => `Month ${label}`}
+            labelFormatter={(label) => `Month ${label}`}
           />
           <Legend
             formatter={(value: string) => debtNames[value] ?? value}
