@@ -224,6 +224,38 @@ describe('edge case 3: promo expires this month', () => {
   })
 })
 
+describe('edge case: monthsRemaining === 0 does not produce Infinity scores', () => {
+  // Promo expires exactly at month 1 (promoExpirationMonth === currentMonth),
+  // which would cause division by zero in priority scoring if not guarded.
+  const debts = [
+    makeDbt({
+      id: 'promo-edge', name: 'PromoEdge', balance: 3000, apr: 20, minPayment: 75,
+      promoApr: 0, promoExpiration: '2026-02-01', retroactiveInterest: false,
+    }),
+    makeDbt({ id: 'other', name: 'Other', balance: 2000, apr: 18, minPayment: 50 }),
+  ]
+  const result = runSimulation(debts, 500, 'avalanche', START)
+
+  it('simulation completes without Infinity or NaN in schedule', () => {
+    expect(result.totalMonths).toBeGreaterThan(0)
+    for (const entry of result.schedule) {
+      for (const snap of entry.debts) {
+        expect(Number.isFinite(snap.balance)).toBe(true)
+        expect(Number.isFinite(snap.paymentMade)).toBe(true)
+        expect(Number.isFinite(snap.interestCharged)).toBe(true)
+      }
+      expect(Number.isFinite(entry.totalPayment)).toBe(true)
+    }
+  })
+
+  it('all debts reach zero', () => {
+    const last = result.schedule[result.schedule.length - 1]
+    for (const snap of last.debts) {
+      expect(snap.balance).toBe(0)
+    }
+  })
+})
+
 describe('edge case 4: promo already expired', () => {
   const debts = [
     makeDbt({
