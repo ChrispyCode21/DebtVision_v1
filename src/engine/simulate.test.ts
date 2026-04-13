@@ -419,7 +419,6 @@ describe('invariants', () => {
       })
 
       it('interestSaved >= 0', () => {
-        // Note: current engine returns interestSaved=0 (baseline not wired)
         // This test verifies the field exists and is non-negative
         expect(result.interestSaved).toBeGreaterThanOrEqual(0)
       })
@@ -435,6 +434,28 @@ describe('invariants', () => {
       })
     })
   }
+})
+
+describe('interestSaved baseline comparison', () => {
+  it('is meaningfully greater than zero when extra budget accelerates payoff', () => {
+    const debts = [
+      makeDbt({ id: 'hi-apr', name: 'High APR', balance: 4000, apr: 24, minPayment: 80 }),
+      makeDbt({ id: 'lo-apr', name: 'Low APR', balance: 2500, apr: 10, minPayment: 50 }),
+    ]
+
+    const result = runSimulation(debts, 500, 'avalanche', START)
+    expect(result.interestSaved).toBeGreaterThan(0)
+  })
+
+  it('is zero when budget is always below minimum requirements', () => {
+    const debts = [
+      makeDbt({ id: 'a', name: 'A', balance: 5000, apr: 18, minPayment: 200 }),
+      makeDbt({ id: 'b', name: 'B', balance: 3000, apr: 12, minPayment: 150 }),
+    ]
+
+    const result = runSimulation(debts, 200, 'avalanche', START)
+    expect(result.interestSaved).toBe(0)
+  })
 })
 
 // ─── Same Rate Tiebreaker ───────────────────────────────────────────────────
