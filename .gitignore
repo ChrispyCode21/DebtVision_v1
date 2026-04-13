@@ -26,3 +26,4 @@ dist-ssr
 spec_docs/
 .claude/
 temp_scaffold/
+issues/
