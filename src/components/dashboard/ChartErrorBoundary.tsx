@@ -3,6 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 interface ChartErrorBoundaryProps {
   children: ReactNode
   title: string
+  resetKeys?: readonly unknown[]
 }
 
 interface ChartErrorBoundaryState {
@@ -15,6 +16,19 @@ export default class ChartErrorBoundary extends Component<
 > {
   state: ChartErrorBoundaryState = { hasError: false }
 
+  private didResetKeysChange(prevResetKeys?: readonly unknown[]): boolean {
+    const currentResetKeys = this.props.resetKeys
+    if (!prevResetKeys || !currentResetKeys) {
+      return prevResetKeys !== currentResetKeys
+    }
+
+    if (prevResetKeys.length !== currentResetKeys.length) {
+      return true
+    }
+
+    return prevResetKeys.some((key, index) => !Object.is(key, currentResetKeys[index]))
+  }
+
   static getDerivedStateFromError(): ChartErrorBoundaryState {
     return { hasError: true }
   }
@@ -25,6 +39,16 @@ export default class ChartErrorBoundary extends Component<
       error,
       errorInfo,
     })
+  }
+
+  componentDidUpdate(prevProps: ChartErrorBoundaryProps): void {
+    if (!this.state.hasError) {
+      return
+    }
+
+    if (this.didResetKeysChange(prevProps.resetKeys)) {
+      this.setState({ hasError: false })
+    }
   }
 
   render() {
