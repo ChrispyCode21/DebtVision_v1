@@ -26,8 +26,49 @@ function createEmptyDebt(): Debt {
   }
 }
 
+function getTodayDateString(): string {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
   const totalBalance = debts.reduce((sum, d) => sum + d.balance, 0)
+  const todayDate = getTodayDateString()
+
+  const localErrors = debts.reduce<Record<string, string>>((acc, debt) => {
+    if (debt.balance < 0) {
+      acc[`${debt.id}-balance`] = 'Balance cannot be negative.'
+    }
+
+    if (debt.apr < 0) {
+      acc[`${debt.id}-apr`] = 'APR cannot be negative.'
+    } else if (debt.apr > 100) {
+      acc[`${debt.id}-apr`] = 'APR cannot exceed 100%.'
+    }
+
+    if (debt.minPayment < 0) {
+      acc[`${debt.id}-minPayment`] = 'Minimum payment cannot be negative.'
+    } else if (debt.balance > 0 && debt.minPayment > debt.balance) {
+      acc[`${debt.id}-minPayment`] = 'Minimum payment cannot exceed the current balance.'
+    }
+
+    if (debt.promoApr !== null) {
+      if (debt.promoApr < 0) {
+        acc[`${debt.id}-promoApr`] = 'Promo APR cannot be negative.'
+      } else if (debt.promoApr > 100) {
+        acc[`${debt.id}-promoApr`] = 'Promo APR cannot exceed 100%.'
+      }
+    }
+
+    if (debt.promoExpiration && debt.promoExpiration < todayDate) {
+      acc[`${debt.id}-promoExpiration`] = 'Promo expiration cannot be in the past.'
+    }
+
+    return acc
+  }, {})
 
   function updateDebt(id: string, updates: Partial<Debt>) {
     onChange(debts.map(d => (d.id === id ? { ...d, ...updates } : d)))
@@ -100,7 +141,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                   placeholder="0.00"
                   value={debt.balance || ''}
                   onChange={v => updateDebt(debt.id, { balance: parseFloat(v) || 0 })}
-                  error={errors[`${debt.id}-balance`]}
+                  error={errors[`${debt.id}-balance`] ?? localErrors[`${debt.id}-balance`]}
                 />
                 <Input
                   label="APR %"
@@ -111,7 +152,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                   placeholder="0.00"
                   value={debt.apr || ''}
                   onChange={v => updateDebt(debt.id, { apr: parseFloat(v) || 0 })}
-                  error={errors[`${debt.id}-apr`]}
+                  error={errors[`${debt.id}-apr`] ?? localErrors[`${debt.id}-apr`]}
                 />
               </div>
 
@@ -124,7 +165,7 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                 placeholder="0.00"
                 value={debt.minPayment || ''}
                 onChange={v => updateDebt(debt.id, { minPayment: parseFloat(v) || 0 })}
-                error={errors[`${debt.id}-minPayment`]}
+                error={errors[`${debt.id}-minPayment`] ?? localErrors[`${debt.id}-minPayment`]}
               />
 
               <ExpandableSection title="Advanced Options">
@@ -138,12 +179,15 @@ export default function DebtEntry({ debts, onChange, errors }: DebtEntryProps) {
                     placeholder="Leave blank if none"
                     value={debt.promoApr ?? ''}
                     onChange={v => updateDebt(debt.id, { promoApr: v ? parseFloat(v) : null })}
+                    error={errors[`${debt.id}-promoApr`] ?? localErrors[`${debt.id}-promoApr`]}
                   />
                   <Input
                     label="Promo Expiration"
                     type="date"
+                    min={todayDate}
                     value={debt.promoExpiration ?? ''}
                     onChange={v => updateDebt(debt.id, { promoExpiration: v || null })}
+                    error={errors[`${debt.id}-promoExpiration`] ?? localErrors[`${debt.id}-promoExpiration`]}
                   />
                   <Toggle
                     label="Retroactive Interest"

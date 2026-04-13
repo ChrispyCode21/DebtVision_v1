@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Debt } from '@/types'
 import Input from '@/components/shared/Input'
 import Button from '@/components/shared/Button'
@@ -26,17 +26,71 @@ function createEmptyDebt(): Debt {
   }
 }
 
+function getTodayDateString(): string {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getDebtValidationErrors(debts: Debt[]): Record<string, string> {
+  const todayDate = getTodayDateString()
+
+  return debts.reduce<Record<string, string>>((acc, debt) => {
+    if (debt.balance < 0) {
+      acc[`${debt.id}-balance`] = 'Balance cannot be negative.'
+    }
+
+    if (debt.apr < 0) {
+      acc[`${debt.id}-apr`] = 'APR cannot be negative.'
+    } else if (debt.apr > 100) {
+      acc[`${debt.id}-apr`] = 'APR cannot exceed 100%.'
+    }
+
+    if (debt.minPayment < 0) {
+      acc[`${debt.id}-minPayment`] = 'Minimum payment cannot be negative.'
+    } else if (debt.balance > 0 && debt.minPayment > debt.balance) {
+      acc[`${debt.id}-minPayment`] = 'Minimum payment cannot exceed the current balance.'
+    }
+
+    if (debt.promoApr !== null) {
+      if (debt.promoApr < 0) {
+        acc[`${debt.id}-promoApr`] = 'Promo APR cannot be negative.'
+      } else if (debt.promoApr > 100) {
+        acc[`${debt.id}-promoApr`] = 'Promo APR cannot exceed 100%.'
+      }
+    }
+
+    if (debt.promoExpiration && debt.promoExpiration < todayDate) {
+      acc[`${debt.id}-promoExpiration`] = 'Promo expiration cannot be in the past.'
+    }
+
+    return acc
+  }, {})
+}
+
 export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>(() => getDebtValidationErrors(debts))
+  const todayDate = getTodayDateString()
 
   const totalBalance = debts.reduce((sum, d) => sum + d.balance, 0)
 
+  useEffect(() => {
+    setValidationErrors(getDebtValidationErrors(debts))
+  }, [debts])
+
   function updateDebt(id: string, updates: Partial<Debt>) {
-    onChange(debts.map(d => (d.id === id ? { ...d, ...updates } : d)))
+    const updatedDebts = debts.map(d => (d.id === id ? { ...d, ...updates } : d))
+    setValidationErrors(getDebtValidationErrors(updatedDebts))
+    onChange(updatedDebts)
   }
 
   function addDebt() {
-    onChange([...debts, createEmptyDebt()])
+    const updatedDebts = [...debts, createEmptyDebt()]
+    setValidationErrors(getDebtValidationErrors(updatedDebts))
+    onChange(updatedDebts)
   }
 
   function confirmDelete(id: string) {
@@ -44,7 +98,9 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
     if (debts.length <= 1) return
     // If already pending this id, execute deletion
     if (pendingDeleteId === id) {
-      onChange(debts.filter(d => d.id !== id))
+      const updatedDebts = debts.filter(d => d.id !== id)
+      setValidationErrors(getDebtValidationErrors(updatedDebts))
+      onChange(updatedDebts)
       setPendingDeleteId(null)
     } else {
       setPendingDeleteId(id)
@@ -149,6 +205,7 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                   placeholder="0.00"
                   value={debt.balance || ''}
                   onChange={v => updateDebt(debt.id, { balance: parseFloat(v) || 0 })}
+                  error={validationErrors[`${debt.id}-balance`]}
                 />
                 <Input
                   label="APR %"
@@ -159,6 +216,7 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                   placeholder="0.00"
                   value={debt.apr || ''}
                   onChange={v => updateDebt(debt.id, { apr: parseFloat(v) || 0 })}
+                  error={validationErrors[`${debt.id}-apr`]}
                 />
               </div>
 
@@ -171,6 +229,7 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                 placeholder="0.00"
                 value={debt.minPayment || ''}
                 onChange={v => updateDebt(debt.id, { minPayment: parseFloat(v) || 0 })}
+                error={validationErrors[`${debt.id}-minPayment`]}
               />
 
               {/* Advanced / promo fields */}
@@ -187,14 +246,17 @@ export default function ManageDebts({ debts, onChange }: ManageDebtsProps) {
                     onChange={v =>
                       updateDebt(debt.id, { promoApr: v ? parseFloat(v) : null })
                     }
+                    error={validationErrors[`${debt.id}-promoApr`]}
                   />
                   <Input
                     label="Promo Expiration"
                     type="date"
+                    min={todayDate}
                     value={debt.promoExpiration ?? ''}
                     onChange={v =>
                       updateDebt(debt.id, { promoExpiration: v || null })
                     }
+                    error={validationErrors[`${debt.id}-promoExpiration`]}
                   />
                   <Toggle
                     label="Retroactive Interest"
