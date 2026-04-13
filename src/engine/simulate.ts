@@ -86,9 +86,9 @@ function computePriorityScore(
     debt.promoExpirationMonth > currentMonth
   ) {
     const monthsRemaining = debt.promoExpirationMonth - currentMonth
-    if (monthsRemaining <= 12) {
+    if (monthsRemaining > 0 && monthsRemaining <= 12) {
       sPromo = 1000 * (1 / monthsRemaining)
-    } else {
+    } else if (monthsRemaining > 12) {
       sPromo = 1000 / 12
     }
   }
