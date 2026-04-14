@@ -7,6 +7,7 @@ import Button from '@/components/shared/Button'
 
 export default function ManageScreen() {
   const { state, dispatch } = useAppContext()
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false)
 
   // Local draft copies — only committed to global state on "Save & Recalculate"
   const [draftBudget, setDraftBudget] = useState<BudgetContext>(state.budgetContext)
@@ -93,6 +94,42 @@ export default function ManageScreen() {
         {/* Debts section */}
         <section className="mb-8">
           <ManageDebts debts={draftDebts} onChange={setDraftDebts} />
+        </section>
+
+        {/* Restart onboarding */}
+        <hr className="border-gray-200 mb-6" />
+        <section className="mb-8">
+          <h2 className="text-lg font-bold text-gray-900 mb-1">Restart Setup</h2>
+          <p className="text-sm text-gray-500 mb-3">
+            Clear all data and return to the onboarding walkthrough.
+          </p>
+          {showRestartConfirm ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-red-600 font-medium">Are you sure? All data will be erased.</span>
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'RESET' })}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Yes, restart
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRestartConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowRestartConfirm(true)}
+              className="px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              Restart Onboarding
+            </button>
+          )}
         </section>
 
         {/* Save & Recalculate — sticky on mobile, inline on desktop */}
