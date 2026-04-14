@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { BudgetContext, Debt, Strategy, AppState } from '@/types'
 import { DEFAULT_APP_STATE, createEmptyDebt } from '@/services/defaults'
 import { saveState } from '@/services/storage'
 import Stepper from '@/components/shared/Stepper'
 import Button from '@/components/shared/Button'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import Welcome from './Welcome'
 import BudgetForm from './BudgetForm'
 import DebtEntry from './DebtEntry'
@@ -29,6 +30,12 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [strategy, setStrategy] = useState<Strategy>('avalanche')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [hasUnsavedExpense, setHasUnsavedExpense] = useState(false)
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false)
+
+  const handleUnsavedExpenseChange = useCallback((dirty: boolean) => {
+    setHasUnsavedExpense(dirty)
+  }, [])
 
   function validateBudget(): boolean {
     const errs: Record<string, string> = {}
@@ -50,7 +57,17 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   function goNext() {
     if (step === 2 && !validateBudget()) return
+    if (step === 2 && hasUnsavedExpense) {
+      setShowUnsavedDialog(true)
+      return
+    }
     if (step === 3 && !validateDebts()) return
+    setErrors({})
+    setStep(s => Math.min(s + 1, 5))
+  }
+
+  function forceNext() {
+    setShowUnsavedDialog(false)
     setErrors({})
     setStep(s => Math.min(s + 1, 5))
   }
@@ -83,7 +100,14 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {step === 1 && <Welcome onNext={goNext} />}
-        {step === 2 && <BudgetForm budget={budget} onChange={setBudget} errors={errors} />}
+        {step === 2 && (
+          <BudgetForm
+            budget={budget}
+            onChange={setBudget}
+            errors={errors}
+            onUnsavedExpenseChange={handleUnsavedExpenseChange}
+          />
+        )}
         {step === 3 && <DebtEntry debts={debts} onChange={setDebts} errors={errors} />}
         {step === 4 && <StrategyPicker strategy={strategy} onChange={setStrategy} />}
         {step === 5 && (
@@ -107,6 +131,16 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
           </Button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={showUnsavedDialog}
+        title="Unsaved Expense"
+        message="You've started entering an expense but haven't added it yet. Would you like to go back and add it, or discard it and continue?"
+        confirmLabel="Discard & Continue"
+        cancelLabel="Go Back"
+        onConfirm={forceNext}
+        onCancel={() => setShowUnsavedDialog(false)}
+      />
     </div>
   )
 }
