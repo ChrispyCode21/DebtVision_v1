@@ -9,5 +9,6 @@ const MONTHLY_MULTIPLIERS: Record<IncomeFrequency, number> = {
 }
 
 export function toMonthlyIncome(amount: number, frequency: IncomeFrequency): number {
+  if (!(frequency in MONTHLY_MULTIPLIERS)) return 0
   return Math.round(amount * MONTHLY_MULTIPLIERS[frequency] * 100) / 100
 }
