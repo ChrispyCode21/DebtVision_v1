@@ -57,4 +57,63 @@ describe('storage service', () => {
     clearState()
     expect(loadState()).toEqual(DEFAULT_APP_STATE)
   })
+
+  describe('schema migration', () => {
+    it('fills in missing boolean fields on debts with defaults', () => {
+      const legacy = {
+        schemaVersion: 1,
+        budgetContext: { netIncome: 3000, incomeFrequency: 'monthly', fixedExpenses: [] },
+        debts: [
+          { id: 'd1', name: 'Card', balance: 500, apr: 18, minPayment: 25 },
+        ],
+        strategy: 'avalanche',
+        onboardingComplete: false,
+      }
+      localStorage.setItem('debtvision_v1', JSON.stringify(legacy))
+      const state = loadState()
+      expect(state.debts[0].retroactiveInterest).toBe(false)
+      expect(state.debts[0].zeroMonthly).toBe(false)
+    })
+
+    it('fills in missing limit field on debts with null', () => {
+      const legacy = {
+        schemaVersion: 1,
+        budgetContext: { netIncome: 0, incomeFrequency: 'monthly', fixedExpenses: [] },
+        debts: [
+          { id: 'd1', name: 'Loan', balance: 1000, apr: 5, minPayment: 50 },
+        ],
+        strategy: 'snowball',
+        onboardingComplete: false,
+      }
+      localStorage.setItem('debtvision_v1', JSON.stringify(legacy))
+      const state = loadState()
+      expect(state.debts[0].limit).toBeNull()
+    })
+
+    it('defaults invalid strategy to avalanche', () => {
+      const legacy = {
+        schemaVersion: 1,
+        budgetContext: { netIncome: 0, incomeFrequency: 'monthly', fixedExpenses: [] },
+        debts: [],
+        strategy: 'bogus',
+        onboardingComplete: false,
+      }
+      localStorage.setItem('debtvision_v1', JSON.stringify(legacy))
+      const state = loadState()
+      expect(state.strategy).toBe('avalanche')
+    })
+
+    it('defaults missing budgetContext.fixedExpenses to empty array', () => {
+      const legacy = {
+        schemaVersion: 1,
+        budgetContext: { netIncome: 2000, incomeFrequency: 'biweekly' },
+        debts: [],
+        strategy: 'avalanche',
+        onboardingComplete: false,
+      }
+      localStorage.setItem('debtvision_v1', JSON.stringify(legacy))
+      const state = loadState()
+      expect(state.budgetContext.fixedExpenses).toEqual([])
+    })
+  })
 })

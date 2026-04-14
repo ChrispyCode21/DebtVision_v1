@@ -25,4 +25,9 @@ describe('toMonthlyIncome', () => {
   it('handles zero income', () => {
     expect(toMonthlyIncome(0, 'weekly')).toBe(0)
   })
+
+  it('returns 0 for an invalid frequency', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(toMonthlyIncome(5000, 'invalid' as any)).toBe(0)
+  })
 })
