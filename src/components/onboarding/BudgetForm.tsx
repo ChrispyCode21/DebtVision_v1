@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { BudgetContext, FixedExpense, IncomeFrequency } from '@/types'
 import { FREQUENCY_OPTIONS } from '@/services/defaults'
 import { toMonthlyIncome } from '@/services/income'
@@ -12,9 +12,10 @@ interface BudgetFormProps {
   budget: BudgetContext
   onChange: (budget: BudgetContext) => void
   errors: Record<string, string>
+  onUnsavedExpenseChange?: (dirty: boolean) => void
 }
 
-export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps) {
+export default function BudgetForm({ budget, onChange, errors, onUnsavedExpenseChange }: BudgetFormProps) {
   const monthlyIncome = useMemo(
     () => toMonthlyIncome(budget.netIncome, budget.incomeFrequency),
     [budget.netIncome, budget.incomeFrequency],
@@ -44,6 +45,12 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
 
   const [newExpenseName, setNewExpenseName] = useState('')
   const [newExpenseAmount, setNewExpenseAmount] = useState('')
+
+  // Report to parent whether the expense inputs have unsaved content
+  useEffect(() => {
+    const dirty = newExpenseName.trim() !== '' || newExpenseAmount.trim() !== ''
+    onUnsavedExpenseChange?.(dirty)
+  }, [newExpenseName, newExpenseAmount, onUnsavedExpenseChange])
 
   function addExpense() {
     const name = newExpenseName.trim()
