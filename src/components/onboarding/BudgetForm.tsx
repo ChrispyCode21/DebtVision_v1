@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { BudgetContext, FixedExpense, IncomeFrequency } from '@/types'
 import { FREQUENCY_OPTIONS } from '@/services/defaults'
 import { toMonthlyIncome } from '@/services/income'
@@ -42,20 +42,21 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
     onChange({ ...budget, [key]: value })
   }
 
-  function updateExpense(id: string, field: keyof FixedExpense, value: string | number) {
-    const updated = budget.fixedExpenses.map(e =>
-      e.id === id ? { ...e, [field]: value } : e,
-    )
-    updateField('fixedExpenses', updated)
-  }
+  const [newExpenseName, setNewExpenseName] = useState('')
+  const [newExpenseAmount, setNewExpenseAmount] = useState('')
 
   function addExpense() {
+    const name = newExpenseName.trim()
+    const amount = parseFloat(newExpenseAmount) || 0
+    if (!name || amount <= 0) return
     const newExpense: FixedExpense = {
       id: crypto.randomUUID(),
-      name: '',
-      amount: 0,
+      name,
+      amount,
     }
     updateField('fixedExpenses', [...budget.fixedExpenses, newExpense])
+    setNewExpenseName('')
+    setNewExpenseAmount('')
   }
 
   function removeExpense(id: string) {
@@ -90,52 +91,68 @@ export default function BudgetForm({ budget, onChange, errors }: BudgetFormProps
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-gray-800">Fixed Monthly Expenses</h3>
-          <Button variant="ghost" onClick={addExpense} className="text-sm !min-h-[36px] !px-3">
-            + Add Expense
-          </Button>
-        </div>
+        <h3 className="text-base font-semibold text-gray-800 mb-3">Fixed Monthly Expenses</h3>
 
-        {budget.fixedExpenses.length === 0 && (
-          <p className="text-sm text-gray-400 italic">No fixed expenses added yet.</p>
+        {budget.fixedExpenses.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {budget.fixedExpenses.map(expense => (
+              <div
+                key={expense.id}
+                className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5"
+              >
+                <span className="text-sm font-medium text-gray-800">{expense.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">
+                    ${expense.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeExpense(expense.id)}
+                    className="min-h-[36px] px-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    aria-label={`Remove ${expense.name}`}
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
-        <div className="space-y-3">
-          {budget.fixedExpenses.map(expense => (
-            <Card key={expense.id} className="!p-3">
-              <div className="flex items-end gap-3">
-                <Input
-                  label="Name"
-                  placeholder="e.g., Rent"
-                  value={expense.name}
-                  onChange={v => updateExpense(expense.id, 'name', v)}
-                  className="flex-1"
-                />
-                <Input
-                  label="Amount"
-                  currency
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="0.00"
-                  value={expense.amount || ''}
-                  onChange={v => updateExpense(expense.id, 'amount', parseFloat(v) || 0)}
-                  error={expenseErrors[expense.id]}
-                  className="w-32"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeExpense(expense.id)}
-                  className="min-h-[44px] px-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                  aria-label={`Remove ${expense.name || 'expense'}`}
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-            </Card>
-          ))}
-        </div>
+        {budget.fixedExpenses.length === 0 && (
+          <p className="text-sm text-gray-400 italic mb-4">No fixed expenses added yet.</p>
+        )}
+
+        <Card className="!p-3">
+          <div className="flex items-end gap-3">
+            <Input
+              label="Name"
+              placeholder="e.g., Rent"
+              value={newExpenseName}
+              onChange={setNewExpenseName}
+              className="flex-1"
+            />
+            <Input
+              label="Amount"
+              currency
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="0.00"
+              value={newExpenseAmount}
+              onChange={setNewExpenseAmount}
+              className="w-32"
+            />
+            <Button
+              variant="primary"
+              onClick={addExpense}
+              disabled={!newExpenseName.trim() || !parseFloat(newExpenseAmount)}
+              className="!min-h-[44px] !px-4 text-sm whitespace-nowrap"
+            >
+              Add
+            </Button>
+          </div>
+        </Card>
       </div>
 
       <Card className="!bg-blue-50 !border-blue-200">
