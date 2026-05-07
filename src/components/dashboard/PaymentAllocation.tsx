@@ -8,6 +8,7 @@ import {
   Legend,
 } from 'recharts'
 import type { MonthEntry } from '@/types'
+import DashboardChartLegend from './DashboardChartLegend'
 
 interface PaymentAllocationProps {
   schedule: MonthEntry[]
@@ -32,11 +33,6 @@ function formatCurrency(value: number): string {
   }).format(value)
 }
 
-interface LegendEntry {
-  value?: string | number
-  color?: string
-}
-
 export default function PaymentAllocation({ schedule, debtNames }: PaymentAllocationProps) {
   if (schedule.length === 0) return null
 
@@ -54,24 +50,6 @@ export default function PaymentAllocation({ schedule, debtNames }: PaymentAlloca
     }
     return row
   })
-
-  const renderLegend = (props: { payload?: readonly LegendEntry[] }) => (
-    <ul className="mt-2 flex max-h-20 flex-wrap gap-x-4 gap-y-1 overflow-y-auto pr-1 text-xs sm:max-h-none sm:text-sm">
-      {(props.payload ?? []).map((entry) => {
-        const debtId = String(entry.value ?? '')
-        return (
-          <li key={debtId} className="flex items-center gap-1">
-            <span
-              aria-hidden="true"
-              className="inline-block h-2 w-2 shrink-0 rounded-sm"
-              style={{ backgroundColor: entry.color ?? '#64748b' }}
-            />
-            <span className="truncate">{debtNames[debtId] ?? debtId}</span>
-          </li>
-        )
-      })}
-    </ul>
-  )
 
   return (
     <div className="h-[340px] min-h-[300px] sm:h-[280px] sm:min-h-[250px]">
@@ -95,7 +73,7 @@ export default function PaymentAllocation({ schedule, debtNames }: PaymentAlloca
             labelFormatter={(label) => `Month ${label}`}
           />
           <Legend
-            content={renderLegend}
+            content={(props) => <DashboardChartLegend payload={props.payload} debtNames={debtNames} />}
             verticalAlign="bottom"
           />
           {debtIds.map((debtId, index) => (
