@@ -8,6 +8,7 @@ import {
   Legend,
 } from 'recharts'
 import type { MonthEntry } from '@/types'
+import DashboardChartLegend from './DashboardChartLegend'
 
 interface PayoffTimelineProps {
   schedule: MonthEntry[]
@@ -51,8 +52,8 @@ export default function PayoffTimeline({ schedule, debtNames }: PayoffTimelinePr
   })
 
   return (
-    <div style={{ minHeight: 250 }}>
-      <ResponsiveContainer width="100%" height={280}>
+    <div className="h-[340px] min-h-[300px] sm:h-[280px] sm:min-h-[250px]">
+      <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 16, bottom: 0 }}>
           <XAxis
             dataKey="month"
@@ -72,8 +73,8 @@ export default function PayoffTimeline({ schedule, debtNames }: PayoffTimelinePr
             labelFormatter={(label) => `Month ${label}`}
           />
           <Legend
-            formatter={(value: string) => debtNames[value] ?? value}
-            wrapperStyle={{ fontSize: 12 }}
+            content={(props) => <DashboardChartLegend payload={props.payload} debtNames={debtNames} />}
+            verticalAlign="bottom"
           />
           {debtIds.map((debtId, index) => (
             <Area
