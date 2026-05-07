@@ -26,6 +26,7 @@ export default function Toggle({ label, description, checked, onChange }: Toggle
         type="checkbox"
         role="switch"
         checked={checked}
+        aria-checked={checked}
         aria-describedby={descriptionId}
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
