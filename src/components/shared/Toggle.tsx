@@ -35,7 +35,7 @@ export default function Toggle({ label, description, checked, onChange }: Toggle
         className="relative inline-flex h-6 w-11 shrink-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-blue-600 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-blue-600"
       >
         <span
-          className="mt-0.5 inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"
+          className={`mt-0.5 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
         />
       </span>
     </label>

@@ -32,12 +32,17 @@ export default function ManageScreen() {
     event: KeyboardEvent<HTMLButtonElement>,
     currentStrategy: Strategy,
   ) {
-    if (
-      event.key !== 'ArrowLeft' &&
-      event.key !== 'ArrowRight' &&
-      event.key !== 'ArrowUp' &&
-      event.key !== 'ArrowDown'
-    ) {
+    const isArrowKey =
+      event.key === 'ArrowLeft' ||
+      event.key === 'ArrowRight' ||
+      event.key === 'ArrowUp' ||
+      event.key === 'ArrowDown' ||
+      event.key === 'Left' ||
+      event.key === 'Right' ||
+      event.key === 'Up' ||
+      event.key === 'Down'
+
+    if (!isArrowKey) {
       return
     }
 
