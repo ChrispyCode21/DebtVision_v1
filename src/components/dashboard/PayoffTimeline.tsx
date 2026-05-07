@@ -32,6 +32,11 @@ function formatCurrency(value: number): string {
   }).format(value)
 }
 
+interface LegendEntry {
+  value?: string | number
+  color?: string
+}
+
 export default function PayoffTimeline({ schedule, debtNames }: PayoffTimelineProps) {
   if (schedule.length === 0) return null
 
@@ -50,9 +55,27 @@ export default function PayoffTimeline({ schedule, debtNames }: PayoffTimelinePr
     return row
   })
 
+  const renderLegend = (props: { payload?: readonly LegendEntry[] }) => (
+    <ul className="mt-2 flex max-h-20 flex-wrap gap-x-4 gap-y-1 overflow-y-auto pr-1 text-xs sm:max-h-none sm:text-sm">
+      {(props.payload ?? []).map((entry) => {
+        const debtId = String(entry.value ?? '')
+        return (
+          <li key={debtId} className="flex items-center gap-1">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2 w-2 shrink-0 rounded-sm"
+              style={{ backgroundColor: entry.color ?? '#64748b' }}
+            />
+            <span className="truncate">{debtNames[debtId] ?? debtId}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
   return (
-    <div style={{ minHeight: 250 }}>
-      <ResponsiveContainer width="100%" height={280}>
+    <div className="h-[340px] min-h-[300px] sm:h-[280px] sm:min-h-[250px]">
+      <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 16, bottom: 0 }}>
           <XAxis
             dataKey="month"
@@ -72,8 +95,8 @@ export default function PayoffTimeline({ schedule, debtNames }: PayoffTimelinePr
             labelFormatter={(label) => `Month ${label}`}
           />
           <Legend
-            formatter={(value: string) => debtNames[value] ?? value}
-            wrapperStyle={{ fontSize: 12 }}
+            content={renderLegend}
+            verticalAlign="bottom"
           />
           {debtIds.map((debtId, index) => (
             <Area
