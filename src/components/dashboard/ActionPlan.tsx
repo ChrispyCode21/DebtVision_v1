@@ -18,31 +18,25 @@ function MonthDirectiveContent({ directive }: { directive: MonthDirective }) {
     <div className="space-y-3">
       {/* Payment list */}
       <ul className="space-y-2">
-        {directive.payments.map((payment) => (
+        {directive.payments.map((payment, index) => (
           <li
-            key={payment.debtId}
-            className="flex items-center justify-between text-sm"
+            key={`${payment.debtId}-${index}`}
+            className="text-sm"
           >
-            <span className="font-medium text-gray-800">{payment.debtName}</span>
-            <span className="font-semibold text-blue-600">
-              {formatCurrency(payment.amount)}
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-gray-800">{payment.debtName}</span>
+              <span className="font-semibold text-blue-600">
+                {formatCurrency(payment.amount)}
+              </span>
+            </div>
+            {payment.reasoning && (
+              <div className="mt-0.5 text-xs text-gray-500 italic">
+                {payment.reasoning}
+              </div>
+            )}
           </li>
         ))}
       </ul>
-
-      {/* Reasoning notes */}
-      {directive.payments.some((p) => p.reasoning) && (
-        <ul className="space-y-1">
-          {directive.payments
-            .filter((p) => p.reasoning)
-            .map((p) => (
-              <li key={p.debtId} className="text-xs text-gray-500 italic">
-                {p.debtName}: {p.reasoning}
-              </li>
-            ))}
-        </ul>
-      )}
 
       {/* Milestones */}
       {directive.milestones.length > 0 && (
