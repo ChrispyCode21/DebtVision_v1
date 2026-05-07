@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import type { BudgetContext, Debt, Strategy } from '@/types'
 import { useAppContext } from '@/context/app-context'
 import ManageBudget from './ManageBudget'
@@ -8,6 +8,8 @@ import Button from '@/components/shared/Button'
 export default function ManageScreen() {
   const { state, dispatch } = useAppContext()
   const [showRestartConfirm, setShowRestartConfirm] = useState(false)
+  const avalancheButtonRef = useRef<HTMLButtonElement>(null)
+  const snowballButtonRef = useRef<HTMLButtonElement>(null)
 
   // Local draft copies — only committed to global state on "Save & Recalculate"
   const [draftBudget, setDraftBudget] = useState<BudgetContext>(state.budgetContext)
@@ -24,6 +26,34 @@ export default function ManageScreen() {
     setSavedMessage(true)
     const timer = setTimeout(() => setSavedMessage(false), 2500)
     return () => clearTimeout(timer)
+  }
+
+  function handleStrategyArrowKey(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentStrategy: Strategy,
+  ) {
+    const isArrowKey =
+      event.key === 'ArrowLeft' ||
+      event.key === 'ArrowRight' ||
+      event.key === 'ArrowUp' ||
+      event.key === 'ArrowDown' ||
+      event.key === 'Left' ||
+      event.key === 'Right' ||
+      event.key === 'Up' ||
+      event.key === 'Down'
+
+    if (!isArrowKey) {
+      return
+    }
+
+    event.preventDefault()
+    const nextStrategy = currentStrategy === 'avalanche' ? 'snowball' : 'avalanche'
+    setDraftStrategy(nextStrategy)
+    if (nextStrategy === 'avalanche') {
+      avalancheButtonRef.current?.focus()
+    } else {
+      snowballButtonRef.current?.focus()
+    }
   }
 
   return (
@@ -47,8 +77,10 @@ export default function ManageScreen() {
             className="grid grid-cols-2 gap-3"
           >
             <button
+              ref={avalancheButtonRef}
               type="button"
               onClick={() => setDraftStrategy('avalanche')}
+              onKeyDown={(event) => handleStrategyArrowKey(event, 'avalanche')}
               aria-pressed={draftStrategy === 'avalanche'}
               className={`min-h-[56px] rounded-xl border-2 px-4 py-3 text-left transition-colors
                 ${draftStrategy === 'avalanche'
@@ -63,8 +95,10 @@ export default function ManageScreen() {
             </button>
 
             <button
+              ref={snowballButtonRef}
               type="button"
               onClick={() => setDraftStrategy('snowball')}
+              onKeyDown={(event) => handleStrategyArrowKey(event, 'snowball')}
               aria-pressed={draftStrategy === 'snowball'}
               className={`min-h-[56px] rounded-xl border-2 px-4 py-3 text-left transition-colors
                 ${draftStrategy === 'snowball'
