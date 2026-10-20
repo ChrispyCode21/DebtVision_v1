@@ -1,117 +1,66 @@
-# DebtVision v1
+# DebtVision
 
-A debt payoff optimizer that produces a personalized, month-by-month payment plan across multiple debts. It accounts for promotional APR windows, retroactive interest traps, and budget constraints that generic snowball/avalanche calculators ignore.
+[![CI](https://github.com/ChrispyCode21/DebtVision_v1/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrispyCode21/DebtVision_v1/actions/workflows/ci.yml)
+
+A debt payoff optimizer that produces a personalized, month-by-month payment plan across multiple debts. It accounts for promotional APR windows, deferred-interest traps, and budget constraints that generic snowball/avalanche calculators ignore.
 
 ## Why This Exists
 
 People managing multiple debts juggle balances, interest rates, promotional windows, and payment strategies across bank apps and spreadsheets. DebtVision holds the full picture and tells you exactly what to pay, how much, and when.
 
+V1 is a browser-only app: you enter your income, fixed expenses and debts, and it simulates the payoff. Connecting real accounts (via Plaid) and moving beyond localStorage is the planned next version; see [SPEC.md](SPEC.md) §5, §7.10 and §8.
+
 ## Quick Start
 
 ```bash
 npm install
-npm run dev       # dev server on http://localhost:5173
-npm test          # run tests (69 passing)
-npm run build     # production build
+npm run dev          # dev server on http://localhost:5173
+npm test             # run the tests once
+npm run check:fast   # lint + typecheck + tests (what CI runs first)
+npm run build        # production build
 ```
+
+Requires Node 22.
 
 ## Tech Stack
 
 - **React 19** + **TypeScript 5.9** (strict mode)
-- **Vite 8** for builds, **Vitest** for testing
+- **Vite 8** for builds, **Vitest** + Testing Library for tests
 - **Tailwind CSS 4** for styling
 - **Recharts 3** for data visualization
 - **localStorage** for persistence (no backend)
 
-## Project Structure
+## Documentation
 
-```
-src/
-  types/index.ts              # All TypeScript interfaces (Debt, AppState, SimulationResult, etc.)
-  engine/simulate.ts          # Core optimization engine (~530 lines)
-  engine/simulate.test.ts     # Engine tests (~60 tests covering edge cases)
-  services/
-    storage.ts                # localStorage load/save/clear
-    income.ts                 # Income frequency -> monthly conversion
-    defaults.ts               # Default app state
-  context/AppContext.tsx       # React Context + useReducer, auto-saves to localStorage
-  components/
-    shared/                   # Reusable UI: Button, Input, Card, Toggle, Select, Stepper, ExpandableSection
-    onboarding/               # 5-step wizard: Welcome, Budget, Debts, Strategy, Review
-    dashboard/                # Plan display: SummaryStats, ActionPlan, Charts, PayoffCards, Warnings
-    manage/                   # Edit screen: ManageBudget, ManageDebts, ManageScreen
-    layout/TabBar.tsx         # Mobile bottom / desktop top navigation
-  App.tsx                     # Root: AppProvider + tab routing + onboarding guard
-```
+| File | What it is |
+|---|---|
+| [SPEC.md](SPEC.md) | Product spec, the engine's algorithm (§7), and the decision log (§8). The source of truth. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Folder map and data flow, as the code is today. |
+| [CLAUDE.md](CLAUDE.md) | Standing rules for AI-assisted development in this repo. |
 
-## Architecture
+## How the Engine Works
 
-**Data flow:** User input (onboarding/manage) -> AppContext (useReducer + localStorage) -> Simulation engine -> Dashboard display
+The engine (`src/engine/simulate.ts`) runs a month-by-month simulation that accrues interest (handling promo rates and expiration dates), scores debts by priority (deferred-interest risk > promo urgency > effective rate > your avalanche/snowball preference), pays minimums first and then the extra by priority, and carries freed minimums forward when a debt is paid off. It compares the result with a minimums-only baseline to report interest saved. Details, scoring formulas and a worked example are in [SPEC.md](SPEC.md) §7.
 
-The simulation engine (`src/engine/simulate.ts`) is the core of the app. It runs a month-by-month simulation that:
-
-- Accrues interest (handling promo rates and expiration dates)
-- Scores debts by priority (retroactive interest risk > promo urgency > effective rate > base strategy)
-- Allocates payments (minimums first, then extras by priority score)
-- Cascades freed minimums when debts are paid off
-- Compares against a minimum-only baseline to calculate interest saved
-
-The priority scoring system uses a weighted hierarchy so retroactive interest deadlines always dominate, regardless of strategy choice (avalanche/snowball).
-
-## Key Types
-
-```typescript
-// Input
-interface Debt {
-  id: string; name: string; balance: number;
-  apr: number; minPayment: number;
-  promoApr: number | null;           // temporary promotional rate
-  promoExpiration: string | null;     // ISO date when promo ends
-  retroactiveInterest: boolean;       // if true, promo expiry triggers back-interest
-}
-
-// Output
-interface SimulationResult {
-  actionPlan: MonthDirective[];       // "Pay $X to Y because Z" per month
-  schedule: MonthEntry[];             // Full amortization schedule
-  debtSummaries: DebtSummary[];       // Per-debt payoff month + total interest
-  totalMonths: number;
-  totalInterestPaid: number;
-  interestSaved: number;              // vs. minimum-only baseline
-  warnings: Warning[];                // Budget shortfalls, promo deadlines, etc.
-}
-```
-
-Full type definitions are in `src/types/index.ts`.
+**Promo types.** A standard 0% balance transfer just changes rate when the promo ends. A *deferred-interest* promotion (store or medical financing, "no interest if paid in full") charges all the promo-period interest if any balance remains at the deadline. Only turn on the "Deferred Interest" option for the second kind.
 
 ## Testing
 
 ```bash
-npm test                    # run all tests
-npx vitest run --reporter=verbose   # verbose output
+npm test                              # all tests, once
+npm run test:watch                    # watch mode
+npx vitest run src/engine             # just the engine
 ```
 
-Tests cover:
-- Income frequency conversions
-- localStorage round-tripping
-- Single and multi-debt simulations
-- Promotional APR expiration and retroactive interest
-- Budget shortfall scenarios with proportional allocation
-- Avalanche vs. snowball ordering
-- Edge cases (zero-balance debts, zero-APR, immediate payoff)
+Tests cover income conversion, storage round-tripping and migration, input validation, chart error handling, and the engine: single and multi-debt runs, promo expiry, deferred interest, budget shortfalls, avalanche vs. snowball ordering, and edge cases.
 
 ## Known Limitations
 
-- **localStorage only** — Data is stored in the browser's localStorage. Clearing browser data will erase all saved information. There is no backend or cloud sync.
-- **No export** — There is currently no way to export or print the payoff plan (PDF, CSV, etc.).
-- **Single strategy view** — The app displays the plan for the selected strategy only. There is no side-by-side comparison of avalanche vs. snowball.
-- **No mobile chart optimization** — Charts use fixed heights and may be hard to read on very small screens with many debts.
-
-## Specification Documents
-
-- `DebtVision_V1_Spec.md` — Product specification (UX flows, screen layouts, features)
-- `DebtVision_Algorithm_Spec.md` — Algorithm specification (priority scoring formula, simulation pseudocode, worked examples, edge cases)
+- **localStorage only.** Clearing browser data erases everything; there is no sync or backup.
+- **Fixed minimum payments.** The engine holds each minimum constant, though real minimums shrink as balances fall.
+- **No export.** The plan can't be exported or printed.
+- **Single strategy view.** Avalanche and snowball can't be compared side by side.
 
 ## Path Aliases
 
-`@/` maps to `src/` throughout the project (configured in `tsconfig.app.json` and `vite.config.ts`).
+`@/` maps to `src/` (configured in `tsconfig.app.json` and `vite.config.ts`).

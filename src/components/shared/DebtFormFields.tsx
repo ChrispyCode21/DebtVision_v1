@@ -81,14 +81,14 @@ export default function DebtFormFields({ debt, todayDate, errors, onUpdate }: De
             error={errors[`${debt.id}-promoExpiration`]}
           />
           <Toggle
-            label="Retroactive Interest"
-            description="Interest charged on full original balance if not paid off before promo ends"
+            label="Deferred Interest"
+            description="Store or medical financing that charges all the promo-period interest if any balance is left when the promo ends. Leave off for a regular 0% balance transfer."
             checked={debt.retroactiveInterest}
             onChange={v => onUpdate(debt.id, { retroactiveInterest: v })}
           />
           <Toggle
-            label="Zero Monthly Payment"
-            description="No monthly payment required (e.g., buy-now-pay-later)"
+            label="Paid in Full Each Month"
+            description="I pay this card off in full every month, so it is left out of the payoff plan"
             checked={debt.zeroMonthly}
             onChange={v => onUpdate(debt.id, { zeroMonthly: v })}
           />
