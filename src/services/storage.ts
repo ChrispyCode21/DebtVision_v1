@@ -39,7 +39,7 @@ function migrateState(parsed: Record<string, unknown>): AppState {
     base.strategy = 'avalanche'
   }
 
-  return base as AppState
+  return base as unknown as AppState
 }
 
 export function loadState(): AppState {

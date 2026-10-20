@@ -27,16 +27,6 @@ export default function BudgetForm({ budget, onChange, errors, onUnsavedExpenseC
   )
 
   const availableBudget = Math.max(0, monthlyIncome - totalExpenses)
-  const expenseErrors = useMemo(
-    () =>
-      budget.fixedExpenses.reduce<Record<string, string>>((acc, expense) => {
-        if (expense.amount < 0) {
-          acc[expense.id] = 'Expense amount cannot be negative.'
-        }
-        return acc
-      }, {}),
-    [budget.fixedExpenses],
-  )
   const netIncomeError = errors.netIncome ?? (budget.netIncome < 0 ? 'Take-home pay cannot be negative.' : undefined)
 
   function updateField<K extends keyof BudgetContext>(key: K, value: BudgetContext[K]) {
