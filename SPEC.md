@@ -248,7 +248,7 @@ V1 is deliberately scoped, but architected so that V2 features extend rather tha
 
 Implemented in `src/engine/simulate.ts`; tests in `src/engine/simulate.test.ts`. The engine is a pure function of its inputs (no clock, no randomness, no React): `runSimulation(debts, availableMonthlyBudget, strategy, startDate?)`. Money is a JavaScript number rounded to cents with `round2` after each operation (integer cents is a V2 decision, §7.10).
 
-> **Provenance.** The original algorithm spec was not saved. This section was reconstructed in October 2026 from the code, its tests and the original design brief, and corrected where the code disagreed with the intent. Where behavior is **changing**, it is marked *Target*.
+> **Provenance.** The original algorithm spec was not saved. This section was reconstructed in October 2026 from the code, its tests and the original design brief, and corrected where the code disagreed with the intent. Decisions that changed behavior are recorded in §8.
 
 ### 7.1 Overview
 
@@ -318,7 +318,7 @@ Ordering effect: a deferred-interest debt that cannot be cleared in time (`S_ret
 
 Shapes are in `src/types/index.ts`: `SimulationResult` = `actionPlan` (`MonthDirective[]`: payments with a reasoning string, milestones, warnings), `schedule`, `debtSummaries`, `totalMonths`, `totalInterestPaid`, `interestSaved`, `warnings`. `interestSaved = max(0, baselineInterest - planInterest)`, where the baseline is the same simulation paying minimums only (freed minimums are not redirected) and applying the same deferred-interest rule. A deferred-interest charge therefore usually lands in both runs, and its size differs between them.
 
-Each extra-payment directive's `reasoning` explains why *that debt* received that money, in this order: deferred-interest risk, then promo expiry, then the strategy. *Target* (decision D3): today the text describes only the top-scored debt, even for money that spilled to others. Spilled money is worded as next in line, and a snowball reason quotes the balance before the payment.
+Each extra-payment directive's `reasoning` explains why *that debt* received that money, in this order: deferred-interest risk, then promo expiry, then the strategy (decision D3). The first debt to receive extra money reads "Prioritizing ..."; any spill-over to later debts reads "Remaining extra to ... next highest/lowest ...". A snowball reason quotes the balance the debt was ranked on (after interest, before payments), not the balance after the payment.
 
 ### 7.8 Edge cases
 

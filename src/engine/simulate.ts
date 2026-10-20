@@ -94,6 +94,35 @@ function monthsLabel(n: number): string {
   return n === 1 ? '1 month' : `${n} months`
 }
 
+// ─── Action plan reasoning ─────────────────────────────────────────────────
+
+/**
+ * Why this debt received extra money this month (SPEC 7.7, D3). Order: deferred-interest
+ * risk, then promo expiry, then the strategy. `scoringBalance` is the balance the debt was
+ * ranked on (after interest, before any payment). `first` is the first debt to get extra
+ * money; the rest are the spill-over once it was cleared or capped.
+ */
+function extraReasoning(
+  debt: WorkingDebt,
+  scoringBalance: number,
+  month: number,
+  strategy: Strategy,
+  first: boolean,
+): string {
+  const lead = first ? `Prioritizing ${debt.name}` : `Remaining extra to ${debt.name}`
+  const mr = promoMonthsRemaining(debt, month)
+  if (debt.retroactiveInterest && mr > 0) {
+    return `${lead} -- deferred interest risk. Promo ends ${promoEndsLabel(debt, mr)}.`
+  }
+  if (mr > 0) {
+    return `${lead} -- promotional rate ends ${promoEndsLabel(debt, mr)}.`
+  }
+  if (strategy === 'avalanche') {
+    return `${lead} -- ${first ? 'highest' : 'next highest'} effective interest rate (${debt.apr}% APR).`
+  }
+  return `${lead} -- ${first ? 'lowest' : 'next lowest'} remaining balance ($${scoringBalance.toFixed(2)}).`
+}
+
 // ─── Priority scoring ──────────────────────────────────────────────────────
 
 function computePriorityScore(
@@ -255,10 +284,11 @@ function simulateScenario(
   while (activeDebts.some(d => d.active) && month < 600) {
     month += 1
 
-    const monthPayments: Array<{ debtId: string; amount: number; type: 'minimum' | 'extra' | 'minimum_partial' }> = []
+    const monthPayments: Array<{ debtId: string; amount: number; type: 'minimum' | 'extra' | 'minimum_partial'; reasoning?: string }> = []
     const interestCharged: Record<string, number> = {}
     let retroactiveInterest: Record<string, number> | null = null
     const priorityScores: Record<string, number> = {}
+    const scoringBalances: Record<string, number> = {}
 
     // ── Step 1: Interest Accrual ──
     for (const debt of activeDebts) {
@@ -291,6 +321,7 @@ function simulateScenario(
       if (!debt.active) continue
       const score = computePriorityScore(debt, month, effectiveBudget, activeDebts, strategy)
       priorityScores[debt.id] = score
+      scoringBalances[debt.id] = debt.balance
       scoredDebts.push({ debt, score })
 
       // RETROACTIVE_INTEREST_AT_RISK warning (deduplicated)
@@ -319,9 +350,7 @@ function simulateScenario(
       .filter(d => d.active)
       .reduce((s, d) => s + Math.min(d.minPayment, d.balance), 0)
 
-    let budgetShortfall = false
     if (effectiveBudget < totalMinimumsRequired) {
-      budgetShortfall = true
       // Proportional allocation
       const totalMinsForProportion = activeDebts
         .filter(d => d.active)
@@ -385,6 +414,7 @@ function simulateScenario(
       // Allocate extra pool by priority
       if (allocateExtraPayments) {
         extraPool = round2(extraPool)
+        let firstExtra = true
         for (const { debt } of scoredDebts) {
           if (extraPool <= 0) break
           if (debt.balance <= 0) continue
@@ -393,7 +423,13 @@ function simulateScenario(
           debt.balance = round2(debt.balance - payment)
           debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
           extraPool = round2(extraPool - payment)
-          monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'extra' })
+          monthPayments.push({
+            debtId: debt.id,
+            amount: round2(payment),
+            type: 'extra',
+            reasoning: extraReasoning(debt, scoringBalances[debt.id], month, strategy, firstExtra),
+          })
+          firstExtra = false
         }
       }
     }
@@ -477,32 +513,13 @@ function simulateScenario(
     })
 
     // Build action plan directive
-    const topDebt = scoredDebts[0]
-    let reasoning = ''
-    if (budgetShortfall) {
-      reasoning = 'Budget shortfall -- payments allocated proportionally to minimums.'
-    } else if (topDebt) {
-      const d = topDebt.debt
-      // Determine dominant component for reasoning
-      const mr = promoMonthsRemaining(d, month)
-      if (d.retroactiveInterest && mr > 0) {
-        reasoning = `Prioritizing ${d.name} -- deferred interest risk. Promo ends ${promoEndsLabel(d, mr)}.`
-      } else if (mr > 0) {
-        reasoning = `Prioritizing ${d.name} -- promotional rate ends ${promoEndsLabel(d, mr)}.`
-      } else if (strategy === 'avalanche') {
-        reasoning = `Prioritizing ${d.name} -- highest effective interest rate (${d.apr}% APR).`
-      } else {
-        reasoning = `Prioritizing ${d.name} -- lowest remaining balance ($${round2(d.balance)}).`
-      }
-    }
-
     const paymentDirectives: PaymentDirective[] = monthPayments.map(p => {
       const debtObj = activeDebts.find(dd => dd.id === p.debtId)!
       return {
         debtId: p.debtId,
         debtName: debtObj.name,
         amount: p.amount,
-        reasoning: p.type === 'extra' ? reasoning : (p.type === 'minimum_partial' ? 'Proportional allocation due to budget shortfall' : 'Minimum payment'),
+        reasoning: p.type === 'extra' ? (p.reasoning ?? '') : (p.type === 'minimum_partial' ? 'Proportional allocation due to budget shortfall' : 'Minimum payment'),
       }
     })
 
