@@ -22,8 +22,7 @@ interface WorkingDebt {
   active: boolean
   totalInterestPaid: number
   payoffMonth: number | null
-  retroactiveInterestTriggered: boolean
-  retroactiveInterestAmount: number
+  deferredAccrued: number  // unrounded deferred interest accrued during the promo (SPEC 7.4)
   totalAmountPaid: number
 }
 
@@ -69,6 +68,61 @@ function getEffectiveRate(debt: WorkingDebt, currentMonth: number): number {
   return debt.promoApr
 }
 
+// ─── Promo months remaining ────────────────────────────────────────────────
+
+/**
+ * Payable months left before the promo's deadline bites; 0 when there is none ahead.
+ * A deferred-interest charge is taken after the expiration month's payments, so for
+ * those debts the expiration month itself is still payable (SPEC 7.5, D2). A plain
+ * rate change only affects the following month's interest, so its count stops short
+ * of the expiration month, exactly as scoring always worked.
+ */
+function promoMonthsRemaining(debt: WorkingDebt, currentMonth: number): number {
+  if (debt.promoApr === null || debt.promoExpirationMonth === null) return 0
+  const lastPayableMonth = debt.retroactiveInterest
+    ? debt.promoExpirationMonth
+    : debt.promoExpirationMonth - 1
+  return Math.max(0, lastPayableMonth - currentMonth + 1)
+}
+
+/** "this month" when a deferred-interest promo is in its final payable month, else "in N months". */
+function promoEndsLabel(debt: WorkingDebt, monthsRemaining: number): string {
+  return debt.retroactiveInterest && monthsRemaining === 1 ? 'this month' : `in ${monthsLabel(monthsRemaining)}`
+}
+
+function monthsLabel(n: number): string {
+  return n === 1 ? '1 month' : `${n} months`
+}
+
+// ─── Action plan reasoning ─────────────────────────────────────────────────
+
+/**
+ * Why this debt received extra money this month (SPEC 7.7, D3). Order: deferred-interest
+ * risk, then promo expiry, then the strategy. `scoringBalance` is the balance the debt was
+ * ranked on (after interest, before any payment). `first` is the first debt to get extra
+ * money; the rest are the spill-over once it was cleared or capped.
+ */
+function extraReasoning(
+  debt: WorkingDebt,
+  scoringBalance: number,
+  month: number,
+  strategy: Strategy,
+  first: boolean,
+): string {
+  const lead = first ? `Prioritizing ${debt.name}` : `Remaining extra to ${debt.name}`
+  const mr = promoMonthsRemaining(debt, month)
+  if (debt.retroactiveInterest && mr > 0) {
+    return `${lead} -- deferred interest risk. Promo ends ${promoEndsLabel(debt, mr)}.`
+  }
+  if (mr > 0) {
+    return `${lead} -- promotional rate ends ${promoEndsLabel(debt, mr)}.`
+  }
+  if (strategy === 'avalanche') {
+    return `${lead} -- ${first ? 'highest' : 'next highest'} effective interest rate (${debt.apr}% APR).`
+  }
+  return `${lead} -- ${first ? 'lowest' : 'next lowest'} remaining balance ($${scoringBalance.toFixed(2)}).`
+}
+
 // ─── Priority scoring ──────────────────────────────────────────────────────
 
 function computePriorityScore(
@@ -79,29 +133,17 @@ function computePriorityScore(
   strategy: Strategy,
 ): number {
   // --- S_promo ---
+  const monthsRemaining = promoMonthsRemaining(debt, currentMonth)
   let sPromo = 0
-  if (
-    debt.promoApr !== null &&
-    debt.promoExpirationMonth !== null &&
-    debt.promoExpirationMonth > currentMonth
-  ) {
-    const monthsRemaining = debt.promoExpirationMonth - currentMonth
-    if (monthsRemaining > 0 && monthsRemaining <= 12) {
-      sPromo = 1000 * (1 / monthsRemaining)
-    } else if (monthsRemaining > 12) {
-      sPromo = 1000 / 12
-    }
+  if (monthsRemaining > 0 && monthsRemaining <= 12) {
+    sPromo = 1000 * (1 / monthsRemaining)
+  } else if (monthsRemaining > 12) {
+    sPromo = 1000 / 12
   }
 
   // --- S_retro ---
   let sRetro = 0
-  if (
-    debt.retroactiveInterest &&
-    debt.promoApr !== null &&
-    debt.promoExpirationMonth !== null &&
-    debt.promoExpirationMonth > currentMonth
-  ) {
-    const monthsRemaining = debt.promoExpirationMonth - currentMonth
+  if (debt.retroactiveInterest && monthsRemaining > 0) {
     const totalMins = allActiveDebts
       .filter(d => d.active)
       .reduce((sum, d) => sum + d.minPayment, 0)
@@ -120,12 +162,7 @@ function computePriorityScore(
 
   // --- S_effective ---
   let sEffective: number
-  if (
-    debt.promoApr !== null &&
-    debt.promoExpirationMonth !== null &&
-    debt.promoExpirationMonth > currentMonth
-  ) {
-    const monthsRemaining = debt.promoExpirationMonth - currentMonth
+  if (debt.promoApr !== null && monthsRemaining > 0) {
     const timeWeight = 1 / (1 + monthsRemaining)
     const effectiveRate = debt.promoApr + (debt.apr - debt.promoApr) * timeWeight
     sEffective = effectiveRate * 10
@@ -202,8 +239,7 @@ function simulateScenario(
     active: true,
     totalInterestPaid: 0,
     payoffMonth: null,
-    retroactiveInterestTriggered: false,
-    retroactiveInterestAmount: 0,
+    deferredAccrued: 0,
     totalAmountPaid: 0,
   }))
 
@@ -248,14 +284,27 @@ function simulateScenario(
   while (activeDebts.some(d => d.active) && month < 600) {
     month += 1
 
-    const monthPayments: Array<{ debtId: string; amount: number; type: 'minimum' | 'extra' | 'minimum_partial' }> = []
+    const monthPayments: Array<{ debtId: string; amount: number; type: 'minimum' | 'extra' | 'minimum_partial'; reasoning?: string }> = []
     const interestCharged: Record<string, number> = {}
     let retroactiveInterest: Record<string, number> | null = null
     const priorityScores: Record<string, number> = {}
+    const scoringBalances: Record<string, number> = {}
 
     // ── Step 1: Interest Accrual ──
     for (const debt of activeDebts) {
       if (!debt.active) continue
+
+      // Deferred interest (SPEC 7.4): while the promo runs, accrue the standard-rate
+      // interest the promo is waiving on the same balance this month's interest uses.
+      // It is only charged if a balance remains after the expiration month's payments.
+      if (
+        debt.retroactiveInterest &&
+        debt.promoApr !== null &&
+        debt.promoExpirationMonth !== null &&
+        month <= debt.promoExpirationMonth
+      ) {
+        debt.deferredAccrued += debt.balance * Math.max(0, debt.apr - debt.promoApr) / 12 / 100
+      }
 
       const rate = getEffectiveRate(debt, month)
       const monthlyInterest = round2(debt.balance * (rate / 12 / 100))
@@ -264,35 +313,6 @@ function simulateScenario(
       debt.totalInterestPaid = round2(debt.totalInterestPaid + monthlyInterest)
       totalInterestPaid = round2(totalInterestPaid + monthlyInterest)
       interestCharged[debt.id] = monthlyInterest
-
-      // Retroactive interest check
-      if (
-        debt.retroactiveInterest &&
-        debt.promoExpirationMonth !== null &&
-        debt.promoExpirationMonth === month
-      ) {
-        const promoMonthCount = debt.promoExpirationMonth // months from start
-        const deferredInterest = round2(
-          debt.originalBalance * (debt.apr / 12 / 100) * promoMonthCount
-        )
-        debt.balance = round2(debt.balance + deferredInterest)
-        debt.totalInterestPaid = round2(debt.totalInterestPaid + deferredInterest)
-        totalInterestPaid = round2(totalInterestPaid + deferredInterest)
-        debt.retroactiveInterestTriggered = true
-        debt.retroactiveInterestAmount = deferredInterest
-
-        if (!retroactiveInterest) retroactiveInterest = {}
-        retroactiveInterest[debt.id] = deferredInterest
-
-        warnings.push({
-          type: WarningType.RETROACTIVE_INTEREST_APPLIED,
-          severity: 'critical',
-          debtId: debt.id,
-          month,
-          message: `Retroactive interest of $${deferredInterest} applied to ${debt.name}. Deferred interest accrued on original balance of $${debt.originalBalance} at ${debt.apr}% APR over ${promoMonthCount} promo months.`,
-          amount: deferredInterest,
-        } as Warning)
-      }
     }
 
     // ── Step 2: Priority Scoring ──
@@ -301,17 +321,13 @@ function simulateScenario(
       if (!debt.active) continue
       const score = computePriorityScore(debt, month, effectiveBudget, activeDebts, strategy)
       priorityScores[debt.id] = score
+      scoringBalances[debt.id] = debt.balance
       scoredDebts.push({ debt, score })
 
       // RETROACTIVE_INTEREST_AT_RISK warning (deduplicated)
-      if (
-        debt.retroactiveInterest &&
-        debt.promoApr !== null &&
-        debt.promoExpirationMonth !== null &&
-        debt.promoExpirationMonth > month &&
-        !retroWarned.has(debt.id)
-      ) {
-        const monthsRemaining = debt.promoExpirationMonth - month
+      const warnMonthsRemaining = promoMonthsRemaining(debt, month)
+      if (debt.retroactiveInterest && warnMonthsRemaining > 0 && !retroWarned.has(debt.id)) {
+        const monthsRemaining = warnMonthsRemaining
         const totalMinsNow = activeDebts.filter(d => d.active).reduce((s, d) => s + d.minPayment, 0)
         const estimatedExtra = Math.max(0, effectiveBudget - totalMinsNow)
         const maxPayoffCapacity = (estimatedExtra + debt.minPayment) * monthsRemaining
@@ -322,7 +338,7 @@ function simulateScenario(
             severity: 'critical',
             debtId: debt.id,
             month,
-            message: `${debt.name} has retroactive interest risk. Balance of $${round2(debt.balance)} cannot be paid off before promo expires in ${monthsRemaining} months (max capacity: $${round2(maxPayoffCapacity)}).`,
+            message: `${debt.name} has retroactive interest risk. Balance of $${round2(debt.balance)} cannot be paid off before the promo ends ${promoEndsLabel(debt, monthsRemaining)} (max capacity: $${round2(maxPayoffCapacity)}).`,
           })
         }
       }
@@ -334,9 +350,7 @@ function simulateScenario(
       .filter(d => d.active)
       .reduce((s, d) => s + Math.min(d.minPayment, d.balance), 0)
 
-    let budgetShortfall = false
     if (effectiveBudget < totalMinimumsRequired) {
-      budgetShortfall = true
       // Proportional allocation
       const totalMinsForProportion = activeDebts
         .filter(d => d.active)
@@ -400,6 +414,7 @@ function simulateScenario(
       // Allocate extra pool by priority
       if (allocateExtraPayments) {
         extraPool = round2(extraPool)
+        let firstExtra = true
         for (const { debt } of scoredDebts) {
           if (extraPool <= 0) break
           if (debt.balance <= 0) continue
@@ -408,9 +423,42 @@ function simulateScenario(
           debt.balance = round2(debt.balance - payment)
           debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
           extraPool = round2(extraPool - payment)
-          monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'extra' })
+          monthPayments.push({
+            debtId: debt.id,
+            amount: round2(payment),
+            type: 'extra',
+            reasoning: extraReasoning(debt, scoringBalances[debt.id], month, strategy, firstExtra),
+          })
+          firstExtra = false
         }
       }
+    }
+
+    // ── Deferred interest charge (SPEC 7.4) ──
+    // After the expiration month's payments. A debt paid off by then owes none.
+    for (const debt of activeDebts) {
+      if (!debt.active || !debt.retroactiveInterest) continue
+      if (debt.promoApr === null || debt.promoExpirationMonth !== month) continue
+      if (debt.balance <= 0) continue
+
+      const deferredInterest = round2(debt.deferredAccrued)
+      if (deferredInterest <= 0) continue // promo rate at or above the standard rate defers nothing
+      const owedAtDeadline = debt.balance
+      debt.balance = round2(debt.balance + deferredInterest)
+      debt.totalInterestPaid = round2(debt.totalInterestPaid + deferredInterest)
+      totalInterestPaid = round2(totalInterestPaid + deferredInterest)
+
+      if (!retroactiveInterest) retroactiveInterest = {}
+      retroactiveInterest[debt.id] = deferredInterest
+
+      warnings.push({
+        type: WarningType.RETROACTIVE_INTEREST_APPLIED,
+        severity: 'critical',
+        debtId: debt.id,
+        month,
+        message: `Deferred interest of $${deferredInterest.toFixed(2)} charged on ${debt.name}: $${owedAtDeadline.toFixed(2)} was still owed when the promo ended, so the interest deferred during the promo (${round2(debt.apr - debt.promoApr)}% APR on the balance over ${monthsLabel(debt.promoExpirationMonth)} of this plan) is now due.`,
+        amount: deferredInterest,
+      })
     }
 
     // ── Step 4: Payoff Detection ──
@@ -465,42 +513,13 @@ function simulateScenario(
     })
 
     // Build action plan directive
-    const topDebt = scoredDebts[0]
-    let reasoning = ''
-    if (budgetShortfall) {
-      reasoning = 'Budget shortfall -- payments allocated proportionally to minimums.'
-    } else if (topDebt) {
-      const d = topDebt.debt
-      // Determine dominant component for reasoning
-      if (
-        d.retroactiveInterest &&
-        d.promoApr !== null &&
-        d.promoExpirationMonth !== null &&
-        d.promoExpirationMonth > month
-      ) {
-        const mr = d.promoExpirationMonth - month
-        reasoning = `Prioritizing ${d.name} -- retroactive interest risk. Promo expires in ${mr} months.`
-      } else if (
-        d.promoApr !== null &&
-        d.promoExpirationMonth !== null &&
-        d.promoExpirationMonth > month
-      ) {
-        const mr = d.promoExpirationMonth - month
-        reasoning = `Prioritizing ${d.name} -- promotional rate expires in ${mr} months.`
-      } else if (strategy === 'avalanche') {
-        reasoning = `Prioritizing ${d.name} -- highest effective interest rate (${d.apr}% APR).`
-      } else {
-        reasoning = `Prioritizing ${d.name} -- lowest remaining balance ($${round2(d.balance)}).`
-      }
-    }
-
     const paymentDirectives: PaymentDirective[] = monthPayments.map(p => {
       const debtObj = activeDebts.find(dd => dd.id === p.debtId)!
       return {
         debtId: p.debtId,
         debtName: debtObj.name,
         amount: p.amount,
-        reasoning: p.type === 'extra' ? reasoning : (p.type === 'minimum_partial' ? 'Proportional allocation due to budget shortfall' : 'Minimum payment'),
+        reasoning: p.type === 'extra' ? (p.reasoning ?? '') : (p.type === 'minimum_partial' ? 'Proportional allocation due to budget shortfall' : 'Minimum payment'),
       }
     })
 

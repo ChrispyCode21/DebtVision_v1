@@ -98,6 +98,8 @@ export interface Warning {
   message: string
   severity: WarningSeverity
   month: number | null
+  /** Dollar amount the warning is about (the deferred-interest charge). */
+  amount?: number
 }
 
 export interface SimulationResult {
