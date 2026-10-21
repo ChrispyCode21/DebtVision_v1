@@ -248,7 +248,7 @@ V1 is deliberately scoped, but architected so that V2 features extend rather tha
 
 Implemented in `src/engine/simulate.ts`; tests in `src/engine/simulate.test.ts`. The engine is a pure function of its inputs (no clock, no randomness, no React): `runSimulation(debts, availableMonthlyBudget, strategy, startDate?)`. Money is a JavaScript number rounded to cents with `round2` after each operation (integer cents is a V2 decision, §7.10).
 
-> **Provenance.** The original algorithm spec was not saved. This section was reconstructed in October 2026 from the code, its tests and the original design brief, and corrected where the code disagreed with the intent. Where behavior is **changing**, it is marked *Target*.
+> **Provenance.** The original algorithm spec was not saved. This section was reconstructed in October 2026 from the code, its tests and the original design brief, and corrected where the code disagreed with the intent. Decisions that changed behavior are recorded in §8.
 
 ### 7.1 Overview
 
@@ -270,7 +270,7 @@ For month `m = 1, 2, ...` while any debt is active and `m <= 600`:
 3. **Allocate.**
    - *Shortfall* (`effectiveBudget < sum(min(minPayment, balance))`): `BUDGET_SHORTFALL` was raised up front; each debt receives `effectiveBudget * minPayment / sum(minPayment)`, capped at its balance; any rounding remainder goes to the largest balance (or is clawed back from it) so the month's total equals the budget exactly.
    - *Otherwise:* pay `min(minPayment, balance)` on every debt, then give the remaining pool to debts in descending score order, each capped at its balance, until the pool is empty. Money not needed by a debt falls to the next one in order.
-4. ***Target* (deferred interest charge).** For debts with `retroactiveInterest`, at the end of month `E`, after that month's payments, charge the deferred interest if the balance is above zero (§7.4).
+4. **Deferred interest charge.** For debts with `retroactiveInterest`, at the end of month `E`, after that month's payments, charge the deferred interest if the balance is above zero (§7.4).
 5. **Payoff.** A debt at or below zero becomes inactive and records its payoff month. Its minimum is no longer reserved, so it is part of the pool for every later month.
 6. **Record.** Append the month's schedule entry (per-debt balance, interest, payment) and action-plan directive (§7.7).
 
@@ -281,7 +281,7 @@ Two different products share the promo fields:
 - **Standard 0% (or low) promotional APR**, e.g. a balance transfer. At expiry the rate changes to `apr` going forward. Nothing is charged retroactively. This is the default (`retroactiveInterest = false`).
 - **Deferred interest** (`retroactiveInterest = true`), e.g. store or medical financing. Interest accrues during the promo as if there were no promo, but is only charged if a balance remains when the promo ends; then all of it is charged at once. Paying the debt off by the end of month `E` waives it entirely. Any remaining balance, however small, triggers the whole charge. See the CFPB's explanation of [deferred interest](https://www.consumerfinance.gov/ask-cfpb/i-got-a-credit-card-promising-no-interest-for-a-purchase-if-i-pay-in-full-within-12-months-how-does-this-work-en-40/).
 
-*Target* method for the deferred-interest charge (decision D1, §8): for each month `m = 1..E`, accumulate `deferred += startOfMonthBalance(m) * (apr - promoApr) / 12 / 100`, using the same balance the month's normal interest is computed on. Keep the accumulator unrounded and `round2` it once when it is charged. At the end of month `E`, after payments, if the balance is above zero, add `round2(deferred)` to the balance. The charge is recorded in the schedule on month `E`'s interest and raised as `RETROACTIVE_INTEREST_APPLIED` with an `amount`.
+Method for the deferred-interest charge (decision D1, §8): for each month `m = 1..E`, accumulate `deferred += startOfMonthBalance(m) * (apr - promoApr) / 12 / 100`, using the same balance the month's normal interest is computed on. Keep the accumulator unrounded and `round2` it once when it is charged. At the end of month `E`, after payments, if the balance is above zero, add `round2(deferred)` to the balance. The charge is recorded in the schedule on month `E`'s interest and raised as `RETROACTIVE_INTEREST_APPLIED` with an `amount`. If `promoApr >= apr` nothing is deferred and no warning is raised.
 
 Issuers differ: some compute this on the declining balance (used here, and described by the CFPB as the usual way), others on the original purchase amount. The original-amount figure (`originalBalance * apr / 12 / 100 * E`) is a pessimistic upper bound and is the **previous** behavior. A per-debt switch between the two is a V2 candidate (§7.10).
 
@@ -289,7 +289,7 @@ Issuers differ: some compute this on the declining balance (used here, and descr
 
 ### 7.5 Priority score
 
-`score = S_promo + S_retro + S_effective + S_base`, rounded to cents. Highest score gets extra money first. With `mr` = months until the promo ends:
+`score = S_promo + S_retro + S_effective + S_base`, rounded to cents. Highest score gets extra money first. With `mr` = payable months left before the promo's deadline bites (see the note below the table):
 
 | Term | Applies when | Value |
 |---|---|---|
@@ -300,7 +300,7 @@ Issuers differ: some compute this on the declining balance (used here, and descr
 
 Ordering effect: a deferred-interest debt that cannot be cleared in time (`S_retro = 2000`) outranks everything; one that can only just be cleared outranks ordinary promo urgency; the user's strategy decides only when nothing time-bound separates the debts. The weights (1000, 2000, 1500, 30, the 12-month cap, the 1.5 ratio) are tuning constants. They are decisions of record: changing one changes plans for real users, so a change needs a worked example and an entry in §8.
 
-*Target* (decision D2): `mr` is currently `E - m`, which treats the expiration month as already past, although payments in month `E` still count (the promo rate applies through `E`, and under §7.4 the charge is taken after month `E`'s payments). The corrected value is `mr = E - m + 1` for `m <= E`, in `S_promo`, `S_retro`, `S_effective` and the warning text.
+**Counting `mr` (decision D2).** A deferred-interest charge is taken after month `E`'s payments, so for those debts month `E` is still payable and `mr = E - m + 1` while `m <= E`. A plain promo's rate change only affects the *next* month's interest, so its `mr = E - m` while `m < E`. Plain-promo scoring is deliberately unchanged from the original engine. Reconsidering it (for example whether a 0% promo should outrank a higher-rate debt at all) is a weights decision (§7.10), not part of D2.
 
 ### 7.6 Warnings
 
@@ -318,7 +318,7 @@ Ordering effect: a deferred-interest debt that cannot be cleared in time (`S_ret
 
 Shapes are in `src/types/index.ts`: `SimulationResult` = `actionPlan` (`MonthDirective[]`: payments with a reasoning string, milestones, warnings), `schedule`, `debtSummaries`, `totalMonths`, `totalInterestPaid`, `interestSaved`, `warnings`. `interestSaved = max(0, baselineInterest - planInterest)`, where the baseline is the same simulation paying minimums only (freed minimums are not redirected) and applying the same deferred-interest rule. A deferred-interest charge therefore usually lands in both runs, and its size differs between them.
 
-Each extra-payment directive's `reasoning` explains why *that debt* received that money, in this order: deferred-interest risk, then promo expiry, then the strategy. *Target* (decision D3): today the text describes only the top-scored debt, even for money that spilled to others. Spilled money is worded as next in line, and a snowball reason quotes the balance before the payment.
+Each extra-payment directive's `reasoning` explains why *that debt* received that money, in this order: deferred-interest risk, then promo expiry, then the strategy (decision D3). The first debt to receive extra money reads "Prioritizing ..."; any spill-over to later debts reads "Remaining extra to ... next highest/lowest ...". A snowball reason quotes the balance the debt was ranked on (after interest, before payments), not the balance after the payment.
 
 ### 7.8 Edge cases
 
@@ -350,11 +350,11 @@ B cannot be cleared in time: even paying $350 a month it still owes money at the
 | 4 | 4,931.47 | 1,600.00 | 1,372.59 | |
 | 5 | 4,913.62 | 1,250.00 | 1,339.74 | |
 
-Month 1 raises `RETROACTIVE_INTEREST_AT_RISK` for B: $3,000 cannot be cleared by the expiry.
+Month 1 raises `RETROACTIVE_INTEREST_AT_RISK` for B: $3,000 cannot be cleared by the expiry (capacity `(275 + 75) * 6 = 2,100`).
 
 Deferred charge at the end of month 6. B's balances at the start of months 1..6 are 3000, 2650, 2300, 1950, 1600, 1250 (sum 12,750); the month-6 payment of $350 leaves $900.
 
-- *Target* (declining balance): `12750 * 24.99 / 1200 = 265.52`, so B continues at $1,165.52.
+- Declining balance (current): `12750 * 24.99 / 1200 = 265.52`, so B continues at $1,165.52.
 - Previous behavior (original balance): `3000 * 24.99 / 1200 * 6 = 374.85`.
 
 These hand-computed values are the engine's regression tests.
@@ -374,7 +374,7 @@ These hand-computed values are the engine's regression tests.
 | ID | Date | Decision | Why |
 |---|---|---|---|
 | D1 | 2026-10-20 | Deferred interest is accrued on the declining balance and charged after month `E`'s payments only if a balance remains. The original-balance method is documented as the pessimistic variant. | The CFPB describes the declining-balance method as the usual one, and the original-balance figure overstates the charge for anyone paying the debt down, which triggers needlessly alarming warnings. |
-| D2 | 2026-10-20 | Month `E` counts as payable; `mr = E - m + 1`. | Payments in the expiration month still precede the rate change or charge. |
+| D2 | 2026-10-20 | For deferred-interest debts, month `E` counts as payable: `mr = E - m + 1`. Plain promos keep `mr = E - m`. | The charge is taken after month `E`'s payments, so clearing the debt in `E` avoids it. A plain rate change does not work that way, and its scoring was not asked to change. |
 | D3 | 2026-10-20 | Directive reasoning is per debt, not global. | Spill-over payments were labelled with the top debt's reason. |
 | D4 | 2026-10-20 | The `retroactiveInterest` flag means *deferred interest* only; standard balance transfers leave it off. | A balance transfer's remaining balance simply accrues at the regular APR after expiry. |
 | D5 | 2026-10-20 | The next version adds a backend and Plaid (Liabilities). Variable minimums, integer cents and the Plaid data model are specified in a separate V2 spec before building. | Plaid needs server-held secrets; this ends the localStorage-only design. |
