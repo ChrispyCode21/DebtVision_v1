@@ -740,6 +740,46 @@ describe('action plan structure', () => {
   })
 })
 
+describe('action plan reasoning is per debt (SPEC 7.7, D3)', () => {
+  // X: 100 at 10% (interest 0.83 -> 100.83), min 25. Y: 1000 at 5% (interest 4.17 -> 1004.17), min 25.
+  // Budget 500: extra pool 450. X clears first (75.83 left after its minimum), the rest spills to Y.
+  const x = makeDbt({ id: 'x', name: 'X', balance: 100, apr: 10, minPayment: 25 })
+  const y = makeDbt({ id: 'y', name: 'Y', balance: 1000, apr: 5, minPayment: 25 })
+  const extras = (result: ReturnType<typeof runSimulation>, debtId: string) =>
+    result.actionPlan[0].payments.filter(p => p.debtId === debtId && p.reasoning !== 'Minimum payment')
+
+  it('names the debt that actually received each extra payment (avalanche)', () => {
+    const result = runSimulation([x, y], 500, 'avalanche', START)
+    const xExtra = extras(result, 'x')
+    const yExtra = extras(result, 'y')
+    expect(xExtra).toHaveLength(1)
+    expect(xExtra[0].amount).toBe(75.83)
+    expect(xExtra[0].reasoning).toBe('Prioritizing X -- highest effective interest rate (10% APR).')
+    expect(yExtra).toHaveLength(1)
+    expect(yExtra[0].amount).toBe(374.17)
+    expect(yExtra[0].reasoning).toBe('Remaining extra to Y -- next highest effective interest rate (5% APR).')
+  })
+
+  it('quotes the balance the debt was ranked on, not $0 after payment (snowball)', () => {
+    const result = runSimulation([x, y], 500, 'snowball', START)
+    expect(extras(result, 'x')[0].reasoning).toBe('Prioritizing X -- lowest remaining balance ($100.83).')
+    expect(extras(result, 'y')[0].reasoning).toBe('Remaining extra to Y -- next lowest remaining balance ($1004.17).')
+  })
+
+  it('cites the constraint that ranked the debt, not the strategy', () => {
+    // Extra pool is 500 - 125 = 375; R's capacity (375 + 75) * 6 = 2700 < 3000, so R can't be cleared in time
+    // (S_retro 2000) and outranks the 30% debt Q. R takes the whole pool, so Q gets no extra payment.
+    const r = makeDbt({
+      id: 'r', name: 'R', balance: 3000, apr: 24, minPayment: 75,
+      promoApr: 0, promoExpiration: '2026-07-01', retroactiveInterest: true,
+    })
+    const q = makeDbt({ id: 'q', name: 'Q', balance: 1500, apr: 30, minPayment: 50 })
+    const result = runSimulation([r, q], 500, 'avalanche', START)
+    expect(extras(result, 'q')).toHaveLength(0)
+    expect(extras(result, 'r')[0].reasoning).toBe('Prioritizing R -- deferred interest risk. Promo ends in 6 months.')
+  })
+})
+
 // ─── Rounding Accumulation in Budget Shortfall ─────────────────────────────
 
 describe('budget shortfall rounding accumulation', () => {
