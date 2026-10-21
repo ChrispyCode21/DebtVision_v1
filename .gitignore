@@ -24,7 +24,8 @@ dist-ssr
 *.sw?
 
 spec_docs/
-.claude/
+.claude/*
+!.claude/nightshift.json
 temp_scaffold/
 issues/
 mvp_report_cards/
