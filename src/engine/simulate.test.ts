@@ -147,14 +147,25 @@ describe('worked example (3-debt, $500/mo, avalanche)', () => {
     )
     expect(riskWarning).toBeDefined()
     expect(riskWarning!.severity).toBe('critical')
+    // Promo through month 6 = 6 payable months; capacity (275 extra + 75 min) * 6 = 2100 < 3000
+    expect(riskWarning!.month).toBe(1)
+    expect(riskWarning!.message).toContain('ends in 6 months')
+    expect(riskWarning!.message).toContain('max capacity: $2100')
   })
 
-  it('retroactive interest is applied at month 6', () => {
+  it('deferred interest is charged at month 6 on the declining balance (SPEC 7.9)', () => {
     const retroWarning = result.warnings.find(
       w => w.type === 'RETROACTIVE_INTEREST_APPLIED' && w.debtId === 'b'
     )
     expect(retroWarning).toBeDefined()
     expect(retroWarning!.month).toBe(6)
+    // Balances at the start of months 1..6: 3000, 2650, 2300, 1950, 1600, 1250 (sum 12750)
+    // 12750 * 24.99 / 1200 = 265.51875 -> 265.52
+    expect(retroWarning!.amount).toBe(265.52)
+    const m6 = result.schedule[5].debts.find(d => d.debtId === 'b')!
+    expect(m6.interestCharged).toBe(265.52)
+    // 1250 - 350 payment = 900, + 265.52 charge
+    expect(m6.balance).toBe(1165.52)
   })
 
   it('all debts eventually reach zero', () => {
@@ -532,12 +543,169 @@ describe('retroactive interest calculation', () => {
     expect(retro!.month).toBe(3)
   })
 
-  it('retroactive interest = originalBalance * (APR/12/100) * promoMonths', () => {
-    // 5000 * (24/12/100) * 3 = 5000 * 0.02 * 3 = 300
+  it('deferred interest accrues on the balance owed each promo month, not the original balance', () => {
+    // 200/month paid against 5000 at 2%/month. Balances at the start of months 1..3:
+    // 5000, 4800, 4600 -> (5000 + 4800 + 4600) * 0.02 = 288.00 (the original-balance method gives 300)
     const retro = result.warnings.find(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')
-    expect(retro).toBeDefined()
-    // The message should mention the amount
-    expect(retro!.message).toContain('300')
+    expect(retro!.amount).toBe(288)
+    // 4400 owed after month 3's payment, plus the charge
+    expect(result.schedule[2].debts[0].balance).toBe(4688)
+  })
+})
+
+describe('deferred interest: only the rate the promo waives is deferred', () => {
+  // 1200 at 24% standard (2%/mo) with a 12% promo (1%/mo) through month 3; $100/month, no extra.
+  // The promo waives only the 1%/mo difference, so that is what is deferred.
+  // Balances at the start of months 1..3: 1200, 1112.00, 1023.12.
+  // Deferred = 12.00 + 11.12 + 10.2312 = 33.3512 -> 33.35 (accumulated unrounded, rounded once)
+  const debts = [
+    makeDbt({
+      id: 'p', name: 'Partial promo', balance: 1200, apr: 24, minPayment: 100,
+      promoApr: 12, promoExpiration: '2026-04-01', retroactiveInterest: true,
+    }),
+  ]
+  const result = runSimulation(debts, 100, 'avalanche', START)
+
+  it('charges (apr - promoApr), not the full apr', () => {
+    const retro = result.warnings.find(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')
+    expect(retro!.month).toBe(3)
+    expect(retro!.amount).toBe(33.35)
+  })
+
+  it('adds the charge to the balance after the month-3 payment', () => {
+    // 1023.12 + 10.23 interest - 100 payment = 933.35, + 33.35 charge
+    expect(result.schedule[2].debts[0].balance).toBe(966.7)
+  })
+})
+
+describe('deferred interest: waived when paid off by the deadline', () => {
+  it('charges nothing when the debt is cleared in an earlier month', () => {
+    const debts = [
+      makeDbt({
+        id: 'w', name: 'Waived', balance: 900, apr: 24, minPayment: 50,
+        promoApr: 0, promoExpiration: '2026-04-01', retroactiveInterest: true,
+      }),
+    ]
+    // 400 + 400 + 100 clears it in month 3 (the expiration month)
+    const result = runSimulation(debts, 400, 'avalanche', START)
+    expect(result.warnings.some(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')).toBe(false)
+    expect(result.debtSummaries[0].payoffMonth).toBe(3)
+    expect(result.totalInterestPaid).toBe(0)
+  })
+
+  it('charges the whole accrued interest when even $1 is left after the expiration month', () => {
+    const debts = [
+      makeDbt({
+        id: 'x', name: 'One dollar', balance: 901, apr: 24, minPayment: 50,
+        promoApr: 0, promoExpiration: '2026-04-01', retroactiveInterest: true,
+      }),
+    ]
+    // Start-of-month balances 901, 601, 301 -> (901 + 601 + 301) * 0.02 = 36.06; $1 left after month 3
+    const result = runSimulation(debts, 300, 'avalanche', START)
+    const retro = result.warnings.find(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')
+    expect(retro!.month).toBe(3)
+    expect(retro!.amount).toBe(36.06)
+    expect(result.schedule[2].debts[0].balance).toBe(37.06)
+  })
+
+  it('does not apply deferred interest to a standard 0% promo (flag off)', () => {
+    const debts = [
+      makeDbt({
+        id: 'bt', name: 'Balance transfer', balance: 5000, apr: 24, minPayment: 50,
+        promoApr: 0, promoExpiration: '2026-04-01', retroactiveInterest: false,
+      }),
+    ]
+    const result = runSimulation(debts, 200, 'avalanche', START)
+    expect(result.warnings.some(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')).toBe(false)
+    // Months 1-3 at 0%; month 4 at 2%: (5000 - 600) * 0.02 = 88.00
+    expect(result.schedule[2].debts[0].balance).toBe(4400)
+    expect(result.schedule[3].debts[0].interestCharged).toBe(88)
+  })
+
+  it('interestSaved includes a deferred charge only the baseline incurs', () => {
+    const debts = [
+      makeDbt({
+        id: 'i', name: 'Saved', balance: 1200, apr: 24, minPayment: 100,
+        promoApr: 0, promoExpiration: '2026-04-01', retroactiveInterest: true,
+      }),
+    ]
+    // Plan: 400/month clears it in month 3 -> no interest at all.
+    // Baseline: $100/month leaves 900 at month 3 and is charged 24 + 22 + 20 = 66.00, then 24% on the rest.
+    const result = runSimulation(debts, 400, 'avalanche', START)
+    expect(result.totalInterestPaid).toBe(0)
+    // At least the 66.00 charge plus a month of 24% on the 966.00 it leaves (19.32)
+    expect(result.interestSaved).toBeGreaterThan(85.32)
+  })
+})
+
+describe('deferred-interest expiration month counts as payable (SPEC 7.5, D2)', () => {
+  const retroDebt = makeDbt({
+    id: 'r', name: 'R', balance: 475, apr: 24, minPayment: 25,
+    promoApr: 0, promoExpiration: '2026-02-01', retroactiveInterest: true,
+  })
+  const flatDebt = makeDbt({ id: 'q', name: 'Q', balance: 1000, apr: 20, minPayment: 25 })
+
+  it('clears a deferred-interest debt with the expiration month\'s payment instead of paying the higher APR', () => {
+    // R's promo ends after month 1. Extra pool = 500 - 50 = 450, and R needs exactly 475 - 25 = 450 more.
+    // Capacity (450 + 25) * 1 month = 475 = balance, so S_retro is 1500 and R is paid first:
+    // R is cleared in month 1 and never charged. Counting month 1 as already expired would
+    // have paid Q (20% APR) first and left R to be charged.
+    const result = runSimulation([retroDebt, flatDebt], 500, 'avalanche', START)
+    const m1 = result.schedule[0]
+    expect(m1.debts.find(d => d.debtId === 'r')!.paymentMade).toBe(475)
+    expect(m1.debts.find(d => d.debtId === 'q')!.paymentMade).toBe(25)
+    expect(result.warnings.some(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')).toBe(false)
+  })
+
+  it('says "this month" when a deferred-interest promo is in its last payable month', () => {
+    const result = runSimulation([retroDebt, flatDebt], 500, 'avalanche', START)
+    expect(result.actionPlan[0].payments.find(p => p.debtId === 'r' && p.amount === 450)!.reasoning)
+      .toContain('Promo ends this month')
+  })
+})
+
+describe('plain (flag-off) promo scoring is unchanged in the expiration month', () => {
+  it('still ranks by the standard rate: the 20% debt gets the extra, not the 10% promo debt', () => {
+    const debts = [
+      makeDbt({
+        id: 'p', name: 'P', balance: 1000, apr: 10, minPayment: 25,
+        promoApr: 0, promoExpiration: '2026-02-01',
+      }),
+      makeDbt({ id: 'q', name: 'Q', balance: 1000, apr: 20, minPayment: 25 }),
+    ]
+    const m1 = runSimulation(debts, 500, 'avalanche', START).schedule[0]
+    expect(m1.debts.find(d => d.debtId === 'p')!.paymentMade).toBe(25)
+    expect(m1.debts.find(d => d.debtId === 'q')!.paymentMade).toBe(475)
+  })
+})
+
+describe('deferred interest: edge paths', () => {
+  it('raises no warning when the promo rate is at or above the standard rate', () => {
+    const debts = [
+      makeDbt({
+        id: 'h', name: 'Higher promo', balance: 1000, apr: 10, minPayment: 100,
+        promoApr: 15, promoExpiration: '2026-04-01', retroactiveInterest: true,
+      }),
+    ]
+    const result = runSimulation(debts, 100, 'avalanche', START)
+    expect(result.warnings.some(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')).toBe(false)
+  })
+
+  it('charges deferred interest on the budget-shortfall path too', () => {
+    // Budget 100 against minimums of 200 splits 50/50. R: 0% promo, 24% standard (2%/mo), expires after month 2.
+    // Balances at the start of months 1..2: 1000, 950 -> (1000 + 950) * 0.02 = 39.00; 900 owed after month 2's payment.
+    const debts = [
+      makeDbt({
+        id: 'r', name: 'R', balance: 1000, apr: 24, minPayment: 100,
+        promoApr: 0, promoExpiration: '2026-03-01', retroactiveInterest: true,
+      }),
+      makeDbt({ id: 's', name: 'S', balance: 1000, apr: 12, minPayment: 100 }),
+    ]
+    const result = runSimulation(debts, 100, 'avalanche', START)
+    const retro = result.warnings.find(w => w.type === 'RETROACTIVE_INTEREST_APPLIED')
+    expect(retro!.month).toBe(2)
+    expect(retro!.amount).toBe(39)
+    expect(result.schedule[1].debts.find(d => d.debtId === 'r')!.balance).toBe(939)
   })
 })
 
@@ -569,6 +737,46 @@ describe('action plan structure', () => {
     const lastDirective = result.actionPlan[result.actionPlan.length - 1]
     expect(lastDirective.milestones.length).toBeGreaterThan(0)
     expect(lastDirective.milestones[0]).toContain('TestDebt')
+  })
+})
+
+describe('action plan reasoning is per debt (SPEC 7.7, D3)', () => {
+  // X: 100 at 10% (interest 0.83 -> 100.83), min 25. Y: 1000 at 5% (interest 4.17 -> 1004.17), min 25.
+  // Budget 500: extra pool 450. X clears first (75.83 left after its minimum), the rest spills to Y.
+  const x = makeDbt({ id: 'x', name: 'X', balance: 100, apr: 10, minPayment: 25 })
+  const y = makeDbt({ id: 'y', name: 'Y', balance: 1000, apr: 5, minPayment: 25 })
+  const extras = (result: ReturnType<typeof runSimulation>, debtId: string) =>
+    result.actionPlan[0].payments.filter(p => p.debtId === debtId && p.reasoning !== 'Minimum payment')
+
+  it('names the debt that actually received each extra payment (avalanche)', () => {
+    const result = runSimulation([x, y], 500, 'avalanche', START)
+    const xExtra = extras(result, 'x')
+    const yExtra = extras(result, 'y')
+    expect(xExtra).toHaveLength(1)
+    expect(xExtra[0].amount).toBe(75.83)
+    expect(xExtra[0].reasoning).toBe('Prioritizing X -- highest effective interest rate (10% APR).')
+    expect(yExtra).toHaveLength(1)
+    expect(yExtra[0].amount).toBe(374.17)
+    expect(yExtra[0].reasoning).toBe('Remaining extra to Y -- next highest effective interest rate (5% APR).')
+  })
+
+  it('quotes the balance the debt was ranked on, not $0 after payment (snowball)', () => {
+    const result = runSimulation([x, y], 500, 'snowball', START)
+    expect(extras(result, 'x')[0].reasoning).toBe('Prioritizing X -- lowest remaining balance ($100.83).')
+    expect(extras(result, 'y')[0].reasoning).toBe('Remaining extra to Y -- next lowest remaining balance ($1004.17).')
+  })
+
+  it('cites the constraint that ranked the debt, not the strategy', () => {
+    // Extra pool is 500 - 125 = 375; R's capacity (375 + 75) * 6 = 2700 < 3000, so R can't be cleared in time
+    // (S_retro 2000) and outranks the 30% debt Q. R takes the whole pool, so Q gets no extra payment.
+    const r = makeDbt({
+      id: 'r', name: 'R', balance: 3000, apr: 24, minPayment: 75,
+      promoApr: 0, promoExpiration: '2026-07-01', retroactiveInterest: true,
+    })
+    const q = makeDbt({ id: 'q', name: 'Q', balance: 1500, apr: 30, minPayment: 50 })
+    const result = runSimulation([r, q], 500, 'avalanche', START)
+    expect(extras(result, 'q')).toHaveLength(0)
+    expect(extras(result, 'r')[0].reasoning).toBe('Prioritizing R -- deferred interest risk. Promo ends in 6 months.')
   })
 })
 
