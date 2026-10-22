@@ -890,3 +890,37 @@ describe('zero or negative budget (WE-30)', () => {
     expect(shortfall.message).toContain('Monthly budget ($20) is less than the sum of minimum payments ($50).')
   })
 })
+
+// ─── SPEC 7.5, D15: plain promos stay as scored (worked example) ────────────
+
+describe('plain 0% balance transfer vs a small high-rate card (SPEC 7.5, D15)', () => {
+  // B: $3,000 on 0% until 2026-07-01 then 24.99%, min 75 (no deferred interest). C: $300 at 29.99%, min 25.
+  const transfer = makeDbt({
+    id: 'b', name: 'Transfer', balance: 3000, apr: 24.99, minPayment: 75,
+    promoApr: 0, promoExpiration: '2026-07-01',
+  })
+  const card = makeDbt({ id: 'c', name: 'Card', balance: 300, apr: 29.99, minPayment: 25 })
+  const snap = (r: ReturnType<typeof runSimulation>, month: number, id: string) =>
+    r.schedule[month - 1].debts.find(d => d.debtId === id)!
+
+  it('clears the small card first, then the transfer before the promo ends ($700)', () => {
+    const r = runSimulation([transfer, card], 700, 'avalanche', START)
+    // Month 1: C owes 300 + 7.50 interest = 307.50 and is cleared; the transfer gets 700 - 307.50 = 392.50
+    expect(snap(r, 1, 'c').paymentMade).toBe(307.5)
+    expect(snap(r, 1, 'c').balance).toBe(0)
+    expect(snap(r, 1, 'b').paymentMade).toBe(392.5)
+    // 2607.5 -> 1907.5 -> 1207.5 -> 507.5 -> cleared in month 5, a month before the promo ends
+    expect(snap(r, 4, 'b').balance).toBe(507.5)
+    expect(r.debtSummaries.find(s => s.debtId === 'b')!.payoffMonth).toBe(5)
+    expect(r.totalInterestPaid).toBe(7.5)
+  })
+
+  it('on a tight $500 budget, missing the deadline costs only interest on what is left', () => {
+    const r = runSimulation([transfer, card], 500, 'avalanche', START)
+    // 307.50 left on the transfer after month 6; month 7 at 24.99%: 307.50 * 24.99 / 1200 = 6.40
+    expect(snap(r, 6, 'b').balance).toBe(307.5)
+    expect(snap(r, 7, 'b').interestCharged).toBe(6.4)
+    expect(r.debtSummaries.find(s => s.debtId === 'b')!.payoffMonth).toBe(7)
+    expect(r.totalInterestPaid).toBe(13.9)
+  })
+})
