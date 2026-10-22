@@ -37,5 +37,23 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      # Worker and D1 gates (SPEC 9.11). Lint (`eslint .`), Type-check (`tsc -b`) and the Worker unit
+      # tests (`vitest run` finds worker/**/*.test.ts) already cover the Worker through the steps above.
+      # The steps below add what they cannot, and each runs once its files exist so CI stays green
+      # while the V2 migration lands. wrangler comes from the lockfile (`--no-install`), never a fresh
+      # download; none of these steps needs Cloudflare credentials.
+      - name: Type-check the Worker on its own
+        # An explicit project check, so a missing tsconfig reference can't silently skip the Worker.
+        if: ${{ hashFiles('tsconfig.worker.json') != '' }}
+        run: npx --no-install tsc -p tsconfig.worker.json --noEmit
+      - name: Validate and bundle the Worker (wrangler dry run)
+        # Catches what Workers Builds would reject: a bad wrangler.jsonc, a missing assets directory,
+        # a binding that doesn't resolve, or a Worker that doesn't bundle.
+        if: ${{ hashFiles('wrangler.jsonc') != '' }}
+        run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-dry-run"
+      - name: Apply migrations to a throwaway local D1
+        # Every migration must apply cleanly, in order, to an empty database.
+        if: ${{ hashFiles('migrations/*.sql') != '' }}
+        run: npx --no-install wrangler d1 migrations apply DB --local
       - name: Audit production dependencies
         run: npm audit --omit=dev

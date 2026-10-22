@@ -27,5 +27,7 @@ spec_docs/
 .claude/*
 !.claude/nightshift.json
 temp_scaffold/
+.wrangler/
+.agent-runs/
 issues/
 mvp_report_cards/
