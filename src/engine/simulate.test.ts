@@ -824,3 +824,69 @@ describe('budget shortfall rounding accumulation', () => {
     expect(round2(totalPaid)).toBe(budget)
   })
 })
+
+// ─── Zero or negative budget (SPEC 7.9, WE-30a/b/c) ─────────────────────────
+
+describe('zero or negative budget (WE-30)', () => {
+  // Debt A: $1,000 at 12% APR (1% a month), min $50.
+  // Interest: 10.00, 10.10, 10.201 -> 10.20. No payments, so balances
+  // after months 1/2/3 are 1010.00 / 1020.10 / 1030.30.
+  const debtA = makeDbt({ id: 'a', name: 'A', balance: 1000, apr: 12, minPayment: 50 })
+
+  function expectNoPaymentRun(result: ReturnType<typeof runSimulation>) {
+    expect(result.schedule[0].debts[0].balance).toBe(1010)
+    expect(result.schedule[1].debts[0].balance).toBe(1020.1)
+    expect(result.schedule[2].debts[0].balance).toBe(1030.3)
+    expect(result.totalMonths).toBe(600)
+    expect(result.interestSaved).toBe(0)
+    for (const entry of result.schedule) {
+      expect(entry.totalPayment).toBe(0)
+      for (const snap of entry.debts) {
+        expect(snap.paymentMade).toBe(0)
+        expect(Object.is(snap.paymentMade, -0)).toBe(false)
+      }
+    }
+    for (const directive of result.actionPlan) {
+      for (const p of directive.payments) expect(p.amount).toBeGreaterThanOrEqual(0)
+    }
+    const types = result.warnings.map(w => w.type)
+    expect(types).toContain('BUDGET_SHORTFALL')
+    expect(types).toContain('MINIMUM_EXCEEDS_BUDGET')
+    expect(types).toContain('SIMULATION_CAP_REACHED')
+    expect(types).not.toContain('NO_EXTRA_BUDGET')
+  }
+
+  it('WE-30a: budget 0 makes no payments and the balance compounds', () => {
+    const result = runSimulation([debtA], 0, 'avalanche', START)
+    expectNoPaymentRun(result)
+    const shortfall = result.warnings.find(w => w.type === 'BUDGET_SHORTFALL')!
+    expect(shortfall.message).toContain('($0)')
+  })
+
+  it('WE-30b: negative budget is treated as 0 and prints -$100', () => {
+    const result = runSimulation([debtA], -100, 'avalanche', START)
+    expectNoPaymentRun(result)
+    const shortfall = result.warnings.find(w => w.type === 'BUDGET_SHORTFALL')!
+    expect(shortfall.message).toContain('(-$100)')
+    expect(shortfall.message).not.toContain('$-')
+    const exceeds = result.warnings.find(w => w.type === 'MINIMUM_EXCEEDS_BUDGET')!
+    expect(exceeds.message).toContain('-$100')
+    expect(exceeds.message).not.toContain('$-')
+  })
+
+  it('WE-30c: zero-monthly minimums above the budget give effective -10, treated as 0', () => {
+    const z = makeDbt({ id: 'z', name: 'Z', balance: 500, minPayment: 30, zeroMonthly: true })
+    const result = runSimulation([debtA, z], 20, 'avalanche', START)
+    expectNoPaymentRun(result)
+    const shortfall = result.warnings.find(w => w.type === 'BUDGET_SHORTFALL')!
+    expect(shortfall.message).toContain('(-$10)')
+    expect(result.schedule[0].debts.some(s => s.debtId === 'z')).toBe(false)
+    expect(result.debtSummaries.some(s => s.debtId === 'z')).toBe(false)
+  })
+
+  it('positive shortfall message keeps its format', () => {
+    const result = runSimulation([debtA], 20, 'avalanche', START)
+    const shortfall = result.warnings.find(w => w.type === 'BUDGET_SHORTFALL')!
+    expect(shortfall.message).toContain('Monthly budget ($20) is less than the sum of minimum payments ($50).')
+  })
+})

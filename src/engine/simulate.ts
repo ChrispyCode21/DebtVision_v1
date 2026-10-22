@@ -187,6 +187,11 @@ function computePriorityScore(
   return round2(sPromo + sRetro + sEffective + sBase)
 }
 
+/** Dollar figure for warning text; a negative amount prints as -$100, not $-100. */
+function formatMoney(n: number): string {
+  return n < 0 ? `-$${-n}` : `$${n}`
+}
+
 function simulateScenario(
   debts: Debt[],
   availableMonthlyBudget: number,
@@ -199,6 +204,8 @@ function simulateScenario(
 
   const zeroMonthlyTotal = zeroMonthlyCards.reduce((s, c) => s + c.minPayment, 0)
   const effectiveBudget = availableMonthlyBudget - zeroMonthlyTotal
+  // SPEC 7.3 / D14: a negative effective budget allocates nothing; payments are never negative.
+  const allocationBudget = Math.max(0, effectiveBudget)
 
   const warnings: Warning[] = []
 
@@ -251,7 +258,7 @@ function simulateScenario(
       severity: 'critical',
       debtId: null,
       month: null,
-      message: `Monthly budget ($${effectiveBudget}) is less than the sum of minimum payments ($${totalMins}). Payments are allocated proportionally. Consider increasing your budget or contacting creditors.`,
+      message: `Monthly budget (${formatMoney(effectiveBudget)}) is less than the sum of minimum payments ($${totalMins}). Payments are allocated proportionally. Consider increasing your budget or contacting creditors.`,
     })
     // Check for individual debts exceeding budget
     for (const d of activeDebts) {
@@ -261,7 +268,7 @@ function simulateScenario(
           severity: 'critical',
           debtId: d.id,
           month: null,
-          message: `${d.name} has a minimum payment of $${d.minPayment} which alone exceeds your available budget of $${effectiveBudget}.`,
+          message: `${d.name} has a minimum payment of $${d.minPayment} which alone exceeds your available budget of ${formatMoney(effectiveBudget)}.`,
         })
       }
     }
@@ -360,7 +367,7 @@ function simulateScenario(
         let totalAllocated = 0
         for (const debt of activeDebts) {
           if (!debt.active) continue
-          const share = round2((debt.minPayment / totalMinsForProportion) * effectiveBudget)
+          const share = round2((debt.minPayment / totalMinsForProportion) * allocationBudget)
           const payment = Math.min(share, debt.balance)
           debt.balance = round2(debt.balance - payment)
           debt.totalAmountPaid = round2(debt.totalAmountPaid + payment)
@@ -368,7 +375,7 @@ function simulateScenario(
           monthPayments.push({ debtId: debt.id, amount: round2(payment), type: 'minimum_partial' })
         }
         // Distribute rounding remainder (positive = under-allocated, negative = over-allocated)
-        const remainder = round2(effectiveBudget - totalAllocated)
+        const remainder = round2(allocationBudget - totalAllocated)
         if (remainder > 0.005) {
           // Under-allocated: give leftover cents to highest-balance debt
           const highestBalanceDebt = activeDebts
