@@ -3,7 +3,7 @@
 **Debt Strategy Orchestrator**
 March 2026 · Draft · Revised October 2026
 
-> **Status:** V1 is built (React/TypeScript, localStorage). §1–§6 are the product spec. §7 is the engine's algorithm specification, reconstructed from the code and tests in October 2026 because the original was never saved. §8 is the decision log.
+> **Status:** V1 is built (React/TypeScript, localStorage). §1–§6 are the product spec. §7 is the engine's algorithm specification, reconstructed from the code and tests in October 2026 because the original was never saved. §8 is the decision log. §9 onward is the V2 spec (not built yet).
 
 ---
 
@@ -378,3 +378,126 @@ These hand-computed values are the engine's regression tests.
 | D3 | 2026-10-20 | Directive reasoning is per debt, not global. | Spill-over payments were labelled with the top debt's reason. |
 | D4 | 2026-10-20 | The `retroactiveInterest` flag means *deferred interest* only; standard balance transfers leave it off. | A balance transfer's remaining balance simply accrues at the regular APR after expiry. |
 | D5 | 2026-10-20 | The next version adds a backend and Plaid (Liabilities). Variable minimums, integer cents and the Plaid data model are specified in a separate V2 spec before building. | Plaid needs server-held secrets; this ends the localStorage-only design. |
+| D6 | 2026-10-21 | V2 is single-user: the owner only, authenticated by Cloudflare Access. Every table still carries a `user_id` taken from the Access identity, and every query is scoped by it. | No passwords or signup to build, and Plaid stays inside personal use. Scoping by `user_id` from day one is cheap and keeps a later multi-user launch from needing a schema rewrite. |
+| D7 | 2026-10-21 | Manual entry is the permanent baseline. Plaid only pre-fills fields, and every Plaid-sourced field stays editable. The app must be fully usable if Plaid is never approved. | Plaid's personal-use terms, card field coverage and pricing are unconfirmed (§9.1). The feasibility check can fail without stranding the app. |
+| D8 | 2026-10-21 | The product scope includes accounts and goals ("given income X and commitments Y, what can you do about savings and goals"), but not in v2.0.0 to v2.2.0. It is a later milestone (§9.9). | This was the original intent. It is bigger than the backend migration and needs its own engine design, so it is sequenced after the data layer and Plaid. |
+| D9 | 2026-10-21 | No localStorage import or migration. v2.0.0 replaces localStorage with D1 outright, and `src/services/storage.ts` is removed. | There are no existing users. |
+| D10 | 2026-10-21 | V2 runs on Cloudflare: Workers static assets, D1 and Cloudflare Access, structured like macworx and Logtelligent. Money is stored as integer cents and APRs as integer basis points. | Matches the owner's other apps and tooling. D1 is ample (§9.3). Integers suit SQLite and remove float rounding (§9.5). |
+| D11 | 2026-10-21 | Plaid is called with `fetch` from the Worker, not Plaid's Node SDK. Access tokens are encrypted by the app (AES-GCM) before they are stored, with the key held as a Worker secret. Syncing uses webhooks plus a Cron Trigger. | The Node SDK targets Node, not Workers. Cloudflare's D1 documentation does not describe encryption at rest, so the app encrypts the secrets itself. |
+| D12 | 2026-10-21 | The engine moves to integer cents in v2.0.0, as one change, using the rounding rules in §9.5. SPEC §7 results do not change except where noted there. | CLAUDE.md forbids piecemeal conversion. The engine is pure, so it can change without touching the backend. |
+| D13 | 2026-10-21 | The Plaid feasibility check (§9.1) gates v2.2.0. v2.0.0 and v2.1.0 ship without any Plaid code. | Fail early and cheaply: nothing in the first two milestones depends on the answer. |
+
+---
+
+## 9. V2 Specification
+
+V2 moves DebtVision from a browser-only app to a small Cloudflare-hosted one, adds the engine capabilities V1 deferred, and later connects Plaid. This section is the plan; decisions are in §8 (D6 to D13). Nothing here is built. Per CLAUDE.md, each milestone's behavior is specified here before its code.
+
+### 9.1 Plaid feasibility check
+
+Plaid is the one external dependency that could make part of this plan impossible, so it is checked first and gates v2.2.0 (D13). Everything before v2.2.0 is built without Plaid.
+
+**Known** (sources checked October 2026):
+- Liabilities is offered in a free Trial bundle capped at 10 Production items, for US teams created on or after 2026-04-15 ([billing](https://plaid.com/docs/account/billing)). Ten items is enough for one person.
+- Other pricing is shown only when applying for Production access.
+- Liabilities can supply, for credit accounts, the current minimum payment, due date and APR(s). It cannot supply future minimums, promo expiration or deferred-interest terms; those stay user-entered.
+
+**To confirm before v2.2.0 starts** (answer each on a GitHub issue labeled `question`, then record the outcome in §8):
+1. Is personal (non-business) use allowed for Production access, and what does the application ask?
+2. Which fields do credit cards actually return, across the owner's real issuers?
+3. What is the Liabilities rate after the Trial bundle, and is the Trial enough to run indefinitely at one user?
+4. Do the owner's issuers support Liabilities at all?
+
+**If the check fails** (use not allowed, unaffordable, or too little data): DebtVision stays on manual entry. v2.2.0 is dropped and nothing else changes, because manual entry is the baseline (D7). The optional additions in §9.8 cover the gap.
+
+### 9.2 Scope and principles
+
+- **Single user** (D6). Auth by Cloudflare Access only. No password storage, no signup, no roles.
+- **Manual first** (D7). A user with no bank link has the whole product.
+- **Debts first, accounts later** (D8). Accounts and goals are in scope for the product, but sequenced after the data layer, the minimum-payment model and Plaid.
+- **Engine stays pure** (§7, CLAUDE.md). The Worker loads data, calls the engine and returns results; the engine never sees `fetch`, storage or Plaid.
+- **No secrets in the repo.** Plaid keys and the token-encryption key are Worker secrets. The Access `AUD` and team domain are not secret and may live in `wrangler.jsonc`, as in macworx.
+- **Fresh start.** No localStorage migration (D9). The V1 storage layer is deleted, not kept as an offline mode.
+
+### 9.3 Architecture
+
+- **Hosting:** one Cloudflare Worker serving the Vite build as static assets, with `/api/*` routed to the Worker first (`run_worker_first`), the same shape as macworx. Workers Builds deploys `main`; branches get preview URLs.
+- **Database:** Cloudflare D1. Limits checked at [D1 limits](https://developers.cloudflare.com/d1/platform/limits/): 10 GB per database on the paid plan (500 MB free), single-threaded queries, Time Travel backups (30 days paid, 7 free). This is far more than the app needs. The limits page does not mention encryption at rest, which is why D11 encrypts secrets in the app.
+- **Preview isolation:** previews use their own D1 database, never production data (as macworx does).
+- **Scheduled work:** Cron Triggers for periodic Plaid sync (v2.2.0); webhooks for push updates.
+- **Folders:** `worker/` for the API; `src/` stays the React app; `migrations/` for D1 SQL; `src/engine/` unchanged in role. `ARCHITECTURE.md` is updated in the PR that introduces each piece.
+
+### 9.4 Authentication
+
+Cloudflare Access sits in front of the whole site. The Worker verifies the Access JWT on every `/api/*` request (team domain and `AUD` from config) and derives `user_id` from the verified identity. A request without a valid JWT gets 401. Local development and tests use a documented, clearly fake stub that is compiled out of production. Previews are protected by Access too.
+
+### 9.5 Data model (D1)
+
+Rules for every table: `id TEXT PRIMARY KEY` (UUID), `user_id TEXT NOT NULL`, `created_at` and `updated_at` as ISO-8601 UTC text. Money is `INTEGER` cents. APR and rates are `INTEGER` basis points of a percent, so 19.99% is `1999`. Dates are `YYYY-MM-DD` text, parsed as in §7.2. Booleans are `INTEGER` 0 or 1. Every migration is a new file in `migrations/`; applied migrations are never edited.
+
+| Table | Columns (besides the common ones) | Notes |
+|---|---|---|
+| `settings` | `strategy` (`avalanche` or `snowball`), `net_income_cents`, `income_frequency` | One row per user. |
+| `fixed_expenses` | `name`, `amount_cents`, `sort_order` | Mirrors `BudgetContext.fixedExpenses`. |
+| `debts` | `name`, `balance_cents`, `limit_cents` (nullable), `apr_bps`, `min_payment_cents`, `zero_monthly`, `promo_apr_bps` (nullable), `promo_expiration` (nullable), `retroactive_interest`, `sort_order` | One row per V1 `Debt`. v2.1.0 adds the minimum-payment model columns (§9.6). |
+
+Later milestones add tables (`linked_items`, `linked_accounts`, `accounts`, `goals`) in their own sections; the `user_id` and cents rules apply to them from the start.
+
+**Engine in integer cents (D12).** Behavior is the V1 behavior from §7, with these exact rules so results are reproducible:
+- Monthly interest: `round(balanceCents * rateBps / 120000)`, rounding halves up (`120000` is 12 months times 10,000 basis points per whole).
+- Deferred interest (§7.4): accumulate `balanceCents * (aprBps - promoAprBps)` each month of the promo as an exact integer, with no rounding, and apply `round(accumulator / 120000)` once at the charge. For the §7.9 worked example, `1,275,000 * 2499 / 120000 = 26,551.875`, which rounds to 26,552 cents, the same $265.52.
+- Proportional shortfall shares: `floor(budget * minPayment / totalMins)` per debt, with the remainder (in cents) given to the largest balance, as §7.3 already describes.
+- Input bounds, validated by the API and the forms: a balance may not exceed $10,000,000 and an APR may not exceed 100.00%. This keeps every intermediate value within JavaScript's safe-integer range over the 600-month cap.
+- The results of every §7.9 example must match the V1 values to the cent. Where a rounding tie could shift a cent, the hand-computed cents value goes in the test and is noted here.
+
+### 9.6 Milestones
+
+| Milestone | Contents | Notes |
+|---|---|---|
+| `v1.1.0` | Zero or negative budget fix; the 0% promo scoring question. | V1 correctness work (issues exist). |
+| `v2.0.0` | Cloudflare migration, no Plaid: Workers static assets, D1 schema (§9.5), Access auth (§9.4), REST API, the React app rewired from localStorage to the API, engine in integer cents (D12), V1 storage removed (D9). | Behavior identical to V1 apart from persistence. No data import. |
+| `v2.1.0` | Variable minimum-payment model. | See below. |
+| `v2.2.0` | Plaid Liabilities, if §9.1 passes. | See §9.7. |
+| `v2.3.0` (candidate) | Accounts and goals. | Specified before it is started (§9.9). |
+
+**v2.1.0: variable minimum payments** (resolves the first item in §7.10). A debt gets a `min_model`:
+- `fixed` (default, today's behavior): the amount in `min_payment_cents`.
+- `percent_plus_interest`: each month the minimum is `min(balance, max(floor_cents, round(balance * percent_bps / 10000) + interest))`, with `floor_cents` and `percent_bps` as per-debt fields (a typical card: a $25 floor and 1% of the balance).
+
+The engine's budget logic changes from "fixed minimum" to "minimum evaluated each month". A model whose minimum is below the monthly interest never pays off and keeps raising `SIMULATION_CAP_REACHED`. In v2.2.0 an issuer-reported current minimum calibrates the model (it becomes month 1's minimum). The §7.5 capacity term uses the current month's minimums. This changes plans, so the milestone needs a hand-computed worked example added to §7 and a §8 entry before code.
+
+### 9.7 Plaid Liabilities (v2.2.0)
+
+Only after §9.1 passes, and only for credit-type accounts the owner links.
+
+- **Linking:** Plaid Link in the browser creates a `public_token`; the Worker exchanges it for an `access_token` with `fetch` against Plaid's REST API (D11), encrypts the token with AES-GCM (key from a Worker secret, a fresh random IV per record), and stores only ciphertext and IV in `linked_items`. The plaintext token is never logged, returned to the browser or stored.
+- **Mapping:** a `linked_accounts` row ties one Plaid account to one `debts` row. Plaid supplies balance, current minimum payment, due date and APR(s); the debt record marks each of those fields as `synced` or `overridden`. Promo APR, promo expiration, the deferred-interest flag and the minimum model stay user-entered, because Plaid does not provide them.
+- **Sync:** the Plaid webhook (verified with Plaid's JWT signature) triggers a refresh of the affected item, and a daily Cron Trigger is the backstop. A manual "refresh now" button also exists. A user override is never overwritten unless the user chooses to re-sync that field.
+- **Unlinking:** removes the item at Plaid, then deletes the stored token. Deleting the account deletes all linked data.
+- **Data minimization:** store only the fields the engine and UI use. No transaction data in v2.2.0.
+- **Testing:** all Plaid calls go through a thin client with a fake used in tests. Fixtures use obviously fake data. No real account data ever enters the repo.
+
+### 9.8 Fallback when Plaid is unavailable
+
+Manual entry (D7) is complete without §9.7. If Plaid fails §9.1 or the owner prefers not to link accounts, the optional additions are a "balances last updated" date on each debt and a monthly nudge to re-enter balances. No bank data is needed.
+
+### 9.9 Accounts and goals (v2.3.0 candidate)
+
+The original intent (D8): given income X and commitments Y, show what the user can do about savings and goals as well as debt. Rough shape, to be specified in its own section before the milestone starts:
+- Non-debt accounts (checking, savings) and goals (emergency fund, a purchase, a date) as new tables.
+- The monthly surplus becomes a shared pool between debt payoff (the existing engine) and goals, with a user-set split or a rule such as "build a starter emergency fund first, then avalanche".
+- An engine extension, or a layer above it, that stays pure. Whether it extends §7 or wraps it is a decision for that spec.
+
+This is deliberately not designed here, so the first three milestones stay small.
+
+### 9.10 Security and privacy
+
+- Public repo: no keys, tokens, `.env` files or real account data anywhere (CLAUDE.md). Secrets are set with `wrangler secret put` and documented by name only.
+- Access protects the site and previews; the Worker re-verifies the JWT itself instead of trusting the edge alone.
+- Previews use a separate database with fake data.
+- Plaid tokens are encrypted by the app (D11). Rotating the encryption key (re-encrypt, then retire the old key) is a documented procedure added in v2.2.0.
+- Security headers come from `public/_headers`, as in macworx. CodeQL, Dependency review and the merge-gate stay required.
+
+### 9.11 Testing
+
+The engine keeps its pure unit tests, converted to cents in v2.0.0. Worker code gets unit tests for the JWT check, `user_id` scoping (a row from another user is never returned) and the validation bounds. Migrations are applied to a throwaway database in CI. `npm run check:fast` and `npm run build` remain the pre-push gates.
