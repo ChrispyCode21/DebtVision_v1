@@ -219,7 +219,7 @@ Two primary tabs/routes: **Dashboard** and **Manage**. Simple, clear, no hierarc
 
 **localStorage.** All data (debts, budget context, strategy preference) persisted to a single versioned key. Atomic reads/writes to prevent partial-state corruption.
 
-Cross-device sync is explicitly out of scope for V1. It requires a backend, a database, and user accounts — a fundamentally different product maturity level that is not necessary to validate the core product.
+Cross-device sync is explicitly out of scope for V1 (V2 adds it: §9.12). It requires a backend, a database, and user accounts — a fundamentally different product maturity level that is not necessary to validate the core product.
 
 ---
 
@@ -229,12 +229,12 @@ V1 is deliberately scoped, but architected so that V2 features extend rather tha
 
 | Seam | How It Extends |
 |------|---------------|
-| Plaid integration | Auto-populates income, fixed expenses, and debt balances that V1 users enter manually. Plaid Liabilities can also supply each card's current minimum payment, due date and APR(s). It cannot supply future minimums (the engine still needs a minimum-payment model, §7.10) and is not expected to supply promo expiration or the deferred-interest flag, which stay user-confirmed. Needs a backend (see "Backend + accounts" below), so it ends the localStorage-only design. |
+| Plaid integration | Auto-populates income, fixed expenses, and debt balances that V1 users enter manually. Plaid Liabilities can also supply each card's current minimum payment, due date and APR(s). It cannot supply future minimums (the engine still needs a minimum-payment model, §7.10) and is not expected to supply promo expiration or the deferred-interest flag, which stay user-confirmed. Needs a backend (see "Backend + accounts" below), so V2 adds a synced copy in D1 next to local storage (§9.12). |
 | Scenario comparison | "What if I add $200/month?" or "What if I get a new balance transfer offer?" — new constraint types fed into the existing engine. |
 | Spending analysis | Transaction categorization and pattern recognition layer on top of budget context. Enables recommendations like "your DoorDash habit is adding 3 months to your debt-free date." |
 | New debt types | Student loans, mortgages, auto loans — new metadata fields on the debt record, new constraint logic in the engine. |
 | AI recommendations | Natural language insights layered on top of the engine output. V1 engine output provides the structured data; AI interprets and explains it. |
-| Backend + accounts | Database persistence, user auth, cross-device sync. Replaces localStorage with API calls. Existing data model maps directly to DB schema. |
+| Backend + accounts | A D1 copy synced from the local store (§9.12), Access auth on the API, cross-device sync. Local storage stays as the offline store. Existing data model maps directly to DB schema. |
 
 ---
 
@@ -407,13 +407,21 @@ These hand-computed values (including WE-30a/b/c) are the engine's regression te
 | D6 | 2026-10-21 | V2 is single-user: the owner only, authenticated by Cloudflare Access. Every table still carries a `user_id` taken from the Access identity, and every query is scoped by it. | No passwords or signup to build, and Plaid stays inside personal use. Scoping by `user_id` from day one is cheap and keeps a later multi-user launch from needing a schema rewrite. |
 | D7 | 2026-10-21 | Manual entry is the permanent baseline. Plaid only pre-fills fields, and every Plaid-sourced field stays editable. The app must be fully usable if Plaid is never approved. | Plaid's personal-use terms, card field coverage and pricing are unconfirmed (§9.1). The feasibility check can fail without stranding the app. |
 | D8 | 2026-10-21 | The product scope includes accounts and goals ("given income X and commitments Y, what can you do about savings and goals"), but not in v2.0.0 to v2.2.0. It is a later milestone (§9.9). | This was the original intent. It is bigger than the backend migration and needs its own engine design, so it is sequenced after the data layer and Plaid. |
-| D9 | 2026-10-21 | No localStorage import or migration. v2.0.0 replaces localStorage with D1 outright, and `src/services/storage.ts` is removed. | There are no existing users. |
+| D9 | 2026-10-21 | No localStorage import or migration. v2.0.0 replaces localStorage with D1 outright, and `src/services/storage.ts` is removed. | There are no existing users. *Amended by D16 and D22: the V1 data is still not imported, but the storage layer is kept.* |
 | D10 | 2026-10-21 | V2 runs on Cloudflare: Workers static assets, D1 and Cloudflare Access, structured like macworx and Logtelligent. Money is stored as integer cents and APRs as integer basis points. | Matches the owner's other apps and tooling. D1 is ample (§9.3). Integers suit SQLite and remove float rounding (§9.5). |
 | D11 | 2026-10-21 | Plaid is called with `fetch` from the Worker, not Plaid's Node SDK. Access tokens are encrypted by the app (AES-GCM) before they are stored, with the key held as a Worker secret. Syncing uses webhooks plus a Cron Trigger. | The Node SDK targets Node, not Workers. Cloudflare's D1 documentation does not describe encryption at rest, so the app encrypts the secrets itself. |
 | D12 | 2026-10-21 | The engine moves to integer cents in v2.0.0, as one change, using the rounding rules in §9.5. SPEC §7 results do not change except where noted there. | CLAUDE.md forbids piecemeal conversion. The engine is pure, so it can change without touching the backend. |
 | D13 | 2026-10-21 | The Plaid feasibility check (§9.1) gates v2.2.0. v2.0.0 and v2.1.0 ship without any Plaid code. | Fail early and cheaply: nothing in the first two milestones depends on the answer. |
 | D14 | 2026-10-22 | An effective budget at or below 0 allocates nothing; the Dashboard shows the shortfall warnings plus a no-payments card instead of the empty state. | Someone whose expenses exceed their income needs the warnings most; the shortfall branch produced negative payments for a negative budget. |
 | D15 | 2026-10-22 | The priority score for plain (non-deferred) promos is unchanged (§7.5, option A on issue #31). | Urgency grows as the deadline nears, so a cheap, high-rate debt is cleared first and the promo balance takes over about three months out. That is the interest-minimizing order in the worked example, and missing a plain promo costs only the remaining balance's interest. |
+| D16 | 2026-10-22 | DebtVision is local-first, for offline use: the app reads and writes its own store (localStorage, cents and basis points) and syncs a copy to D1 (§9.12). All three apps (macworx, DebtVision, Logtelligent) follow this pattern, each with its own Worker and its own production and preview D1. | The owner's definitive design decision. macworx is the working model. Replaces the V2 plan to delete the storage layer and run on D1 outright. |
+| D17 | 2026-10-22 | Sync is an outbox of idempotent record operations pushed with one `POST /api/sync`, then a pull of the full state (`GET /api/state`). After a pull, local state is the server's state with unsent operations replayed on top, applied through `AppContext`. The outbox survives a 401. | A pull that overwrote unsent edits, or a sign-out that wiped the queue, would lose data. macworx forgets its queue on 401; this must not be copied. |
+| D18 | 2026-10-22 | Conflicts: per record, the later `(updated_at, last_op_id)` wins, with `updated_at` capped at server time plus 60 s; deletes are tombstones; `settings` has a fixed id; primary keys are `(user_id, id)`; a device pulls once before onboarding. | One user on a few devices needs deterministic convergence and no duplicate rows, not a general merge. The cap stops a fast clock winning forever. |
+| D19 | 2026-10-22 | Previews use `dv-preview`, fake data and a fake-auth stub that exists only in preview builds. Previews never carry Access variables or production ids; a config test enforces this. | Avoids configuring Access for every preview hostname, and a preview can never touch real data. |
+| D20 | 2026-10-22 | Access guards `/api/*` only. The shell, manifest and icons are public. Signing in is an explicit button that goes to `/api/signin`; the app never redirects by itself and keeps working offline while signed out. Supersedes "Access in front of the whole site". | With Access on the whole origin, a cached shell cannot renew an expired session, and the manifest and installed phone app can be blocked. The repo is public and the shell holds no data. |
+| D21 | 2026-10-22 | No device pairing, and the Worker never re-runs the engine; D1 stores inputs only. | The only client is the owner behind Access. macworx re-scores because a child could cheat; nothing here can be cheated. |
+| D22 | 2026-10-22 | The V1 `debtvision_v1` localStorage data is dropped, not imported. | There are no existing users; amends D9. |
+| D23 | 2026-10-22 | Plaid-synced values live in server-only columns the client never sends; the engine uses the user's override if set, else the synced value; `GET /api/state` returns a fixed allowlist of tables and never token tables. | Whole-record last-write-wins would lose either a Plaid refresh or an offline edit, and token ciphertext must never reach a client. |
 
 ---
 
@@ -440,32 +448,33 @@ Plaid is the one external dependency that could make part of this plan impossibl
 
 ### 9.2 Scope and principles
 
-- **Single user** (D6). Auth by Cloudflare Access only. No password storage, no signup, no roles.
+- **Single user** (D6). Auth by Cloudflare Access on the API only (D20). No password storage, no signup, no roles.
 - **Manual first** (D7). A user with no bank link has the whole product.
 - **Debts first, accounts later** (D8). Accounts and goals are in scope for the product, but sequenced after the data layer, the minimum-payment model and Plaid.
-- **Engine stays pure** (§7, CLAUDE.md). The Worker loads data, calls the engine and returns results; the engine never sees `fetch`, storage or Plaid.
+- **Engine stays pure** (§7, CLAUDE.md). The browser runs the engine; the Worker stores inputs and never re-runs it (D21). The engine never sees `fetch`, storage or Plaid.
 - **No secrets in the repo.** Plaid keys and the token-encryption key are Worker secrets. The Access `AUD` and team domain are not secret and may live in `wrangler.jsonc`, as in macworx.
-- **Fresh start.** No localStorage migration (D9). The V1 storage layer is deleted, not kept as an offline mode.
+- **Local-first** (D16). The app works offline from its own store and syncs to D1 when it can (§9.12). The V1 data is not imported (D22), but the storage layer stays, reshaped for cents and sync.
 
 ### 9.3 Architecture
 
 - **Hosting:** one Cloudflare Worker serving the Vite build as static assets, with `/api/*` routed to the Worker first (`run_worker_first`), the same shape as macworx. Workers Builds deploys `main`; branches get preview URLs.
 - **Database:** Cloudflare D1. Limits checked at [D1 limits](https://developers.cloudflare.com/d1/platform/limits/): 10 GB per database on the paid plan (500 MB free), single-threaded queries, Time Travel backups (30 days paid, 7 free). This is far more than the app needs. The limits page does not mention encryption at rest, which is why D11 encrypts secrets in the app.
-- **Preview isolation:** previews use their own D1 database, never production data (as macworx does).
+- **Preview isolation:** previews use their own D1 database, never production data (as macworx does), with a fake-auth stub that exists only in preview builds (D19).
+- **Sync and offline:** §9.12. Migrations are applied to the remote databases by the Workers Builds build step (`build:cloudflare`, as macworx), not from a developer machine.
 - **Scheduled work:** Cron Triggers for periodic Plaid sync (v2.2.0); webhooks for push updates.
 - **Folders:** `worker/` for the API; `src/` stays the React app; `migrations/` for D1 SQL; `src/engine/` unchanged in role. `ARCHITECTURE.md` is updated in the PR that introduces each piece.
 
 ### 9.4 Authentication
 
-Cloudflare Access sits in front of the whole site. The Worker verifies the Access JWT on every `/api/*` request (team domain and `AUD` from config) and derives `user_id` from the verified identity. A request without a valid JWT gets 401. Local development and tests use a documented, clearly fake stub that is compiled out of production. Previews are protected by Access too.
+Cloudflare Access guards `/api/*` on the production hostname (D20). The app shell, manifest and icons are public: the repository is public and the shell holds no data. The Worker verifies the Access JWT itself on every `/api/*` request except `/api/health` (team domain and `AUD` from `wrangler.jsonc`) and derives `user_id` from the verified identity. A request without a valid JWT gets 401. The AUD is the DebtVision Access application's own tag, never macworx's or the account id. Signing back in is an explicit action (§9.12). Local development and tests use a documented, clearly fake stub that is compiled out of production builds. Preview builds use the same stub with the fake `dv-preview` database and carry no Access variables (D19).
 
 ### 9.5 Data model (D1)
 
-Rules for every table: `id TEXT PRIMARY KEY` (UUID), `user_id TEXT NOT NULL`, `created_at` and `updated_at` as ISO-8601 UTC text. Money is `INTEGER` cents. APR and rates are `INTEGER` basis points of a percent, so 19.99% is `1999`. Dates are `YYYY-MM-DD` text, parsed as in §7.2. Booleans are `INTEGER` 0 or 1. Every migration is a new file in `migrations/`; applied migrations are never edited.
+Rules for every table: `id TEXT NOT NULL` (UUID), `user_id TEXT NOT NULL`, with `PRIMARY KEY (user_id, id)`; `created_at` and `updated_at` as ISO-8601 UTC text with milliseconds, where `updated_at` is the client's edit time capped by the server (§9.12); `deleted_at` (nullable, a tombstone); and `last_op_id` (the id of the operation that last wrote the row, for the tie-break). Money is `INTEGER` cents. APR and rates are `INTEGER` basis points of a percent, so 19.99% is `1999`. Dates are `YYYY-MM-DD` text, parsed as in §7.2. Booleans are `INTEGER` 0 or 1. Every migration is a new file in `migrations/`; applied migrations are never edited.
 
 | Table | Columns (besides the common ones) | Notes |
 |---|---|---|
-| `settings` | `strategy` (`avalanche` or `snowball`), `net_income_cents`, `income_frequency` | One row per user. |
+| `settings` | `strategy` (`avalanche` or `snowball`), `net_income_cents`, `income_frequency` | One row per user; its `id` is the `user_id` (D18). |
 | `fixed_expenses` | `name`, `amount_cents`, `sort_order` | Mirrors `BudgetContext.fixedExpenses`. |
 | `debts` | `name`, `balance_cents`, `limit_cents` (nullable), `apr_bps`, `min_payment_cents`, `zero_monthly`, `promo_apr_bps` (nullable), `promo_expiration` (nullable), `retroactive_interest`, `sort_order` | One row per V1 `Debt`. v2.1.0 adds the minimum-payment model columns (§9.6). |
 
@@ -483,7 +492,7 @@ Later milestones add tables (`linked_items`, `linked_accounts`, `accounts`, `goa
 | Milestone | Contents | Notes |
 |---|---|---|
 | `v1.1.0` | Zero or negative budget fix; the 0% promo scoring question. | V1 correctness work (issues exist). |
-| `v2.0.0` | Cloudflare migration, no Plaid: Workers static assets, D1 schema (§9.5), Access auth (§9.4), REST API, the React app rewired from localStorage to the API, engine in integer cents (D12), V1 storage removed (D9). | Behavior identical to V1 apart from persistence. No data import. |
+| `v2.0.0` | Cloudflare migration, no Plaid: Workers static assets, D1 schema (§9.5), Access on the API (§9.4), the sync API, the local-first app with offline and install (§9.12), migrations applied in Workers Builds, engine in integer cents (D12). | Behavior identical to V1 apart from persistence and offline use. No V1 data import (D22). |
 | `v2.1.0` | Variable minimum-payment model. | See below. |
 | `v2.2.0` | Plaid Liabilities, if §9.1 passes. | See §9.7. |
 | `v2.3.0` (candidate) | Accounts and goals. | Specified before it is started (§9.9). |
@@ -500,7 +509,7 @@ Only after §9.1 passes, and only for credit-type accounts the owner links.
 
 - **Linking:** Plaid Link in the browser creates a `public_token`; the Worker exchanges it for an `access_token` with `fetch` against Plaid's REST API (D11), encrypts the token with AES-GCM (key from a Worker secret, a fresh random IV per record), and stores only ciphertext and IV in `linked_items`. The plaintext token is never logged, returned to the browser or stored.
 - **Mapping:** a `linked_accounts` row ties one Plaid account to one `debts` row. Plaid supplies balance, current minimum payment, due date and APR(s); the debt record marks each of those fields as `synced` or `overridden`. Promo APR, promo expiration, the deferred-interest flag and the minimum model stay user-entered, because Plaid does not provide them.
-- **Sync:** the Plaid webhook (verified with Plaid's JWT signature) triggers a refresh of the affected item, and a daily Cron Trigger is the backstop. A manual "refresh now" button also exists. A user override is never overwritten unless the user chooses to re-sync that field.
+- **Sync:** the Plaid webhook (verified with Plaid's JWT signature) triggers a refresh of the affected item, and a daily Cron Trigger is the backstop. A manual "refresh now" button also exists. A user override is never overwritten unless the user chooses to re-sync that field. Plaid-synced values are stored in server-only columns or a server-only table that the sync API never accepts from a client, and `GET /api/state` returns them read-only (D23).
 - **Unlinking:** removes the item at Plaid, then deletes the stored token. Deleting the account deletes all linked data.
 - **Data minimization:** store only the fields the engine and UI use. No transaction data in v2.2.0.
 - **Testing:** all Plaid calls go through a thin client with a fake used in tests. Fixtures use obviously fake data. No real account data ever enters the repo.
@@ -521,11 +530,49 @@ This is deliberately not designed here, so the first three milestones stay small
 ### 9.10 Security and privacy
 
 - Public repo: no keys, tokens, `.env` files or real account data anywhere (CLAUDE.md). Secrets are set with `wrangler secret put` and documented by name only.
-- Access protects the site and previews; the Worker re-verifies the JWT itself instead of trusting the edge alone.
-- Previews use a separate database with fake data.
+- Access protects the API (D20); the Worker re-verifies the JWT itself instead of trusting the edge alone. Client-supplied timestamps are capped by the server (§9.12) and every operation is re-validated against the §9.5 bounds.
+- Previews use a separate database with fake data, a stub instead of Access, and never carry production ids or Access variables (D19).
 - Plaid tokens are encrypted by the app (D11). Rotating the encryption key (re-encrypt, then retire the old key) is a documented procedure added in v2.2.0.
 - Security headers come from `public/_headers`, as in macworx. CodeQL, Dependency review and the merge-gate stay required.
 
 ### 9.11 Testing
 
-The engine keeps its pure unit tests, converted to cents in v2.0.0. Worker code gets unit tests for the JWT check, `user_id` scoping (a row from another user is never returned) and the validation bounds. Migrations are applied to a throwaway database in CI. `npm run check:fast` and `npm run build` remain the pre-push gates.
+The engine keeps its pure unit tests, converted to cents in v2.0.0. Worker code is tested in Node against a real local D1 (Miniflare) with every migration applied, as macworx does: the JWT check, `user_id` scoping (a row from another user is never returned, updated or deleted), the validation bounds, and the sync API. The shared merge function has its own tests: replaying an operation changes nothing; out-of-order delivery converges; a tombstone beats an older edit and loses to a newer one; a far-future client clock is capped; ties break by operation id; a pull with unsent operations keeps them. The client's `sync()` is tested against a fake Worker: held pushes, a failed pull, an edit during a sync, a signed-out response, and a rejected operation. A config test checks that production and preview databases differ and that previews carry no Access variables. Playwright checks that a cold start offline opens the app and that the layout has no sideways scroll at phone width. CI also dry-runs the Worker and applies migrations to a throwaway D1. `npm run check:fast` and `npm run build` remain the pre-push gates.
+
+### 9.12 Local-first storage and sync
+
+The app works offline (D16). It always reads and writes the device's own store; the Worker and D1 hold the synced copy. This follows macworx's pattern (a local store, a queue of unsent changes, one `sync()` that pushes then pulls), with two differences: DebtVision's records are edited on several devices, so it needs conflict rules, and the Worker stores inputs only and never re-runs the engine (D21).
+
+**Local store.** `localStorage`, one versioned key, holding the full app state in cents and basis points (D12), each record carrying `updated_at`, plus `deleted_at` for tombstones, `lastPullAt`, and the outbox. The V1 key `debtvision_v1` is not read or migrated (D22). The engine runs in the browser, so a plan can be computed with no connection. The app asks for persistent storage (`navigator.storage.persist()`), and the D1 copy covers the browser clearing it. A schema bump needs a migration in the local store, with a test (CLAUDE.md "stored data must keep loading" applies to the new key).
+
+**Outbox.** Each local edit updates the local store immediately and appends an operation `{ opId, table, recordId, kind: 'upsert' | 'delete', updatedAt, data }` (`opId` is a UUID). The outbox keeps only the latest operation per record. It is never cleared by a 401 or a sign-out: unsent edits survive. An operation the server rejects as permanently invalid (HTTP 400 on that operation) is set aside, kept and shown to the user, so it cannot block the rest.
+
+**`sync()`.** One run at a time; a call during a run joins it and makes it run once more. It pushes the outbox with `POST /api/sync`, removes confirmed operations, holds the rest on any other answer, and then takes the server's state from the same response (or `GET /api/state`). It runs on load, after local changes (debounced), on the browser's `online` event, and when the tab becomes visible. Outbox writes and `sync()` run under `navigator.locks`, and a `storage` event makes another tab reload its state, so two tabs cannot overwrite each other. Each request gives up after 10 seconds.
+
+**Applying a pull.** After each pull the local state is set to *the server's state with the operations still in the outbox replayed on top*, using the same merge function the Worker uses (a pure module shared by `src/` and `worker/`, tested once). It is applied through `AppContext`, not written straight to storage, so React's own auto-save cannot write the old state back.
+
+**API.** Both routes need a valid Access token (§9.4) and take `user_id` from it only.
+- `POST /api/sync` with `{ ops: Operation[] }`, at most 100 operations, applied in one D1 batch. It returns `{ applied: opId[], rejected: { opId, code, message }[], state }`. Replaying an operation changes nothing.
+- `GET /api/state` returns `state`: the user's `settings`, `fixed_expenses` and `debts`, including tombstones (`deleted_at` set), plus read-only server-synced values (§9.7). The response is built from a fixed allowlist of tables. It never includes `linked_items` or anything holding token ciphertext.
+- Every operation is validated with the same bound checks as the forms (§9.5). Writes are scoped by `user_id`; the primary key of each table is `(user_id, id)`, so a client-chosen id cannot touch another user's row.
+
+**Conflicts (D18).** Per record, the later write wins.
+- Order is `(updated_at, last_op_id)`: the greater `updated_at`, then the lexicographically greater operation id, so every device converges on the same winner.
+- `updated_at` comes from the client, but the server caps it at server time plus 60 seconds, so a device whose clock runs ahead cannot win forever.
+- A delete is a tombstone (`deleted_at` set, same ordering). Tombstones are kept. An edit that is newer than a delete brings the record back; recreating a debt gives it a new id.
+- `settings` has one record per user, and its `id` is the `user_id`, so two new devices cannot create two settings rows.
+- Plaid-written values (§9.7) are server-only columns that clients never send, so a later Plaid refresh cannot overwrite a user edit and vice versa. The engine uses the user's override if there is one, otherwise the synced value.
+
+**First run and new devices (D18).** A device that has never completed a pull (`lastPullAt` unset) must pull once before onboarding, so a second device never builds a duplicate set of debts. Offline, it shows "Connect once to load your data" and a "Start fresh" choice; starting fresh accepts that a later first sync merges both sets and the owner may need to delete duplicates.
+
+**Sign-in (D20).** Access guards `/api/*` only. The app shell, manifest and icons are public. When a sync call returns anything other than the Worker's own JSON (called with `redirect: 'manual'`), and is not a 5xx, the app is **signed out**: it keeps working offline, keeps its outbox, and shows a status with a **Sign in** button. The button navigates to `/api/signin`, a Worker route behind Access that redirects to `/`. The app never redirects by itself, so it never pulls someone out of a half-filled form. The service worker never serves `/api` or `/cdn-cgi` navigations from the cache (`navigateFallbackDenylist`). A 5xx is a server error, not a sign-out.
+
+**Status.** A visible indicator shows offline, syncing, synced, signed out, and "n changes waiting".
+
+**Offline and install.** `vite-plugin-pwa` precaches the app shell and serves a manifest and icons, so a cold start with no connection opens the app. `public/_headers` gives `/sw.js` no-cache. Sign-in from an installed phone app is tested on a real phone before v2.0.0 ships.
+
+**No device pairing (D21).** The only client is the owner's, authenticated by Access. A long-lived device key would weaken it.
+
+**Previews (D19).** Previews use `dv-preview`, a fake-auth stub that exists only in preview builds, and fake data. The preview config never carries Access variables or production ids; a config test enforces both (§9.11).
+
+**Quota.** The data is a few kilobytes; local storage size is not a concern.

@@ -17,7 +17,7 @@ Standing instructions for every Claude session in this repo. Every run reads thi
 ## Stack
 
 - React 19 + TypeScript (strict), built with Vite. Tailwind CSS 4. Recharts for charts.
-- Persistence is `localStorage` only (one versioned key, `src/services/storage.ts`). There is no backend yet.
+- Persistence is local-first (SPEC §9.12, D16): `localStorage` (one versioned key, `src/services/storage.ts`) is the app's own store and works offline. V2 adds a Cloudflare Worker and D1 that hold a synced copy; until that Worker exists there is no backend. The Worker stores inputs only and never re-runs the engine.
 - Vitest + Testing Library (jsdom). ESLint.
 
 ## Architecture rules
@@ -25,6 +25,7 @@ Standing instructions for every Claude session in this repo. Every run reads thi
 - **The engine is pure TypeScript** in `src/engine/`: no React, no `fetch`, no storage, no randomness. The only clock read is the default for `runSimulation`'s `startDate`; every test passes a fixed start date.
 - **Money is rounded to cents with `round2` after every operation.** Do not introduce a second rounding convention. (Integer cents is a planned V2 change; do not start it piecemeal.)
 - **Stored data must keep loading.** Any change to the saved `AppState` shape bumps `schemaVersion` and adds a migration in `src/services/storage.ts` with a test.
+- **Never lose an unsent edit.** Sync (SPEC §9.12) must not clear the outbox on a 401 or a sign-out, and a pull must keep unsent operations (replay them on top of the server state through `AppContext`).
 - **No secrets, ever.** This repo is public. No keys, tokens, `.env` files, or real account data in code, fixtures, tests or screenshots. Use obviously fake sample data.
 - Forms validate with the helpers in `src/services/debtValidation.ts`; do not duplicate validation in components.
 
