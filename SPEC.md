@@ -199,6 +199,8 @@ The command center. This is where the user goes to see their plan. The primary c
 4. **Summary stats** — months to payoff, total interest, interest saved
 5. **Per-debt payoff cards** — individual payoff date and interest cost
 
+When the engine returns no payments (the budget is at or below zero), the Dashboard shows the warnings first, then a short card reading "No payments possible at this budget", with no chart, summary or action plan. The "Add debts and budget" empty state applies only when there are no debts. This state is derived from the engine's result, not from a second copy of the budget formula.
+
 The dashboard is a read-only view of the engine output. No data entry happens here.
 
 #### Manage (Edit Screen)
@@ -268,7 +270,7 @@ For month `m = 1, 2, ...` while any debt is active and `m <= 600`:
 1. **Interest.** For each active debt, `interest = round2(balance * rate / 12 / 100)` and the balance grows by that amount. `rate` is `promoApr` through month `E` inclusive (the promo rate still applies in its expiration month) and `apr` from month `E + 1`. No promo, or a promo already expired at month 1 (`E = 0`), means `apr` throughout.
 2. **Score.** Compute each active debt's priority score (§7.5), after interest and before payments. Emit `RETROACTIVE_INTEREST_AT_RISK` once per debt (§7.6).
 3. **Allocate.**
-   - *Shortfall* (`effectiveBudget < sum(min(minPayment, balance))`): `BUDGET_SHORTFALL` was raised up front; each debt receives `effectiveBudget * minPayment / sum(minPayment)`, capped at its balance; any rounding remainder goes to the largest balance (or is clawed back from it) so the month's total equals the budget exactly.
+   - *Shortfall* (`effectiveBudget < sum(min(minPayment, balance))`): `BUDGET_SHORTFALL` was raised up front; each debt receives `effectiveBudget * minPayment / sum(minPayment)`, capped at its balance; any rounding remainder goes to the largest balance (or is clawed back from it) so the month's total equals the budget exactly. The budget used for this allocation is `max(0, effectiveBudget)`: a negative effective budget (fixed expenses above income, or zero-monthly minimums above the budget) means no payments that month, and no payment is ever negative. `BUDGET_SHORTFALL` and `MINIMUM_EXCEEDS_BUDGET` still carry the real figure; a negative amount in their messages prints as `-$100`, not `$-100`.
    - *Otherwise:* pay `min(minPayment, balance)` on every debt, then give the remaining pool to debts in descending score order, each capped at its balance, until the pool is empty. Money not needed by a debt falls to the next one in order.
 4. **Deferred interest charge.** For debts with `retroactiveInterest`, at the end of month `E`, after that month's payments, charge the deferred interest if the balance is above zero (§7.4).
 5. **Payoff.** A debt at or below zero becomes inactive and records its payoff month. Its minimum is no longer reserved, so it is part of the pool for every later month.
@@ -326,6 +328,8 @@ Each extra-payment directive's `reasoning` explains why *that debt* received tha
 |---|---|
 | Budget below minimums | proportional allocation; totals equal the budget exactly |
 | One minimum above the whole budget | `MINIMUM_EXCEEDS_BUDGET` plus the shortfall path |
+| Effective budget of 0 or below | no payments (treated as 0), interest compounds, `BUDGET_SHORTFALL`, `MINIMUM_EXCEEDS_BUDGET` per debt, then `SIMULATION_CAP_REACHED` at month 600 |
+| Negative effective budget (including zero-monthly minimums above the budget) | same as 0; the warning messages show the real negative figure |
 | Promo expires this month | promo rate for this month, `apr` from the next |
 | Promo already expired | treated as standard from month 1 |
 | Promo without expiration | permanent promo rate |
@@ -357,7 +361,19 @@ Deferred charge at the end of month 6. B's balances at the start of months 1..6 
 - Declining balance (current): `12750 * 24.99 / 1200 = 265.52`, so B continues at $1,165.52.
 - Previous behavior (original balance): `3000 * 24.99 / 1200 * 6 = 374.85`.
 
-These hand-computed values are the engine's regression tests.
+#### Zero or negative budget (WE-30)
+
+Setup for all three: start 2026-01-01, avalanche. Debt A: $1,000.00, APR 12% (1% a month), minimum $50, no promo. Month 1 interest 10.00, month 2 10.10, month 3 10.201 rounded to 10.20.
+
+| ID | Inputs | Effective budget | Allocation | Balance after month 1 / 2 / 3 | Warnings |
+|---|---|---|---|---|---|
+| WE-30a | budget 0, A only | 0 | no payments | 1,010.00 / 1,020.10 / 1,030.30 | `BUDGET_SHORTFALL` ("$0"), `MINIMUM_EXCEEDS_BUDGET`, `SIMULATION_CAP_REACHED` |
+| WE-30b | budget -100, A only | -100, treated as 0 | no payments, none negative | 1,010.00 / 1,020.10 / 1,030.30 | `BUDGET_SHORTFALL` ("-$100"), `MINIMUM_EXCEEDS_BUDGET`, `SIMULATION_CAP_REACHED` |
+| WE-30c | budget 20, A plus zero-monthly card Z (min $30) | 20 - 30 = -10, treated as 0 | no payments, Z not simulated | 1,010.00 / 1,020.10 / 1,030.30 | `BUDGET_SHORTFALL` ("-$10"), `MINIMUM_EXCEEDS_BUDGET`, `SIMULATION_CAP_REACHED` |
+
+All three: `totalMonths` 600, `interestSaved` 0, every payment amount >= 0. The schedule still contains zero-amount `minimum_partial` entries, and the `BUDGET_SHORTFALL` text still says "allocated proportionally".
+
+These hand-computed values (including WE-30a/b/c) are the engine's regression tests.
 
 ### 7.10 Open items
 
@@ -386,6 +402,7 @@ These hand-computed values are the engine's regression tests.
 | D11 | 2026-10-21 | Plaid is called with `fetch` from the Worker, not Plaid's Node SDK. Access tokens are encrypted by the app (AES-GCM) before they are stored, with the key held as a Worker secret. Syncing uses webhooks plus a Cron Trigger. | The Node SDK targets Node, not Workers. Cloudflare's D1 documentation does not describe encryption at rest, so the app encrypts the secrets itself. |
 | D12 | 2026-10-21 | The engine moves to integer cents in v2.0.0, as one change, using the rounding rules in §9.5. SPEC §7 results do not change except where noted there. | CLAUDE.md forbids piecemeal conversion. The engine is pure, so it can change without touching the backend. |
 | D13 | 2026-10-21 | The Plaid feasibility check (§9.1) gates v2.2.0. v2.0.0 and v2.1.0 ship without any Plaid code. | Fail early and cheaply: nothing in the first two milestones depends on the answer. |
+| D14 | 2026-10-22 | An effective budget at or below 0 allocates nothing; the Dashboard shows the shortfall warnings plus a no-payments card instead of the empty state. | Someone whose expenses exceed their income needs the warnings most; the shortfall branch produced negative payments for a negative budget. |
 
 ---
 
