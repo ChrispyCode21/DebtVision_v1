@@ -304,6 +304,16 @@ Ordering effect: a deferred-interest debt that cannot be cleared in time (`S_ret
 
 **Counting `mr` (decision D2).** A deferred-interest charge is taken after month `E`'s payments, so for those debts month `E` is still payable and `mr = E - m + 1` while `m <= E`. A plain promo's rate change only affects the *next* month's interest, so its `mr = E - m` while `m < E`. Plain-promo scoring is deliberately unchanged from the original engine. Reconsidering it (for example whether a 0% promo should outrank a higher-rate debt at all) is a weights decision (§7.10), not part of D2.
 
+**Plain promos stay as scored (decision D15).** A plain 0% promo (for example a balance transfer) gains priority as its deadline nears, but does not outrank a much higher-rate debt early on. Worked example: B is $3,000 on a 0% transfer that ends 2026-07-01 (24.99% after, minimum $75); C is $300 on a 29.99% card (minimum $25); avalanche, start 2026-01.
+
+| Budget | Month 1 | Months 2 to 5 | Result |
+|---|---|---|---|
+| $700 | C is cleared ($307.50 with $7.50 interest); $392.50 to B | everything to B | B cleared in month 5; total interest $7.50 |
+| $1,000 | same | same | B cleared in month 4; total interest $7.50 |
+| $500 | same | same | B cleared in month 7, one month past the promo; total interest $13.90, of which $6.40 is the cost of missing the deadline |
+
+C is cleared first because it costs about $7.50 and frees its minimum. B overtakes C about three months before its expiry (`1000 / mr` grows while C's score stays flat). Missing a plain promo's deadline costs interest only on the balance still owed, going forward; the whole-balance charge is the deferred-interest case (D4).
+
 ### 7.6 Warnings
 
 | Type | Severity | Raised when |
@@ -403,6 +413,7 @@ These hand-computed values (including WE-30a/b/c) are the engine's regression te
 | D12 | 2026-10-21 | The engine moves to integer cents in v2.0.0, as one change, using the rounding rules in §9.5. SPEC §7 results do not change except where noted there. | CLAUDE.md forbids piecemeal conversion. The engine is pure, so it can change without touching the backend. |
 | D13 | 2026-10-21 | The Plaid feasibility check (§9.1) gates v2.2.0. v2.0.0 and v2.1.0 ship without any Plaid code. | Fail early and cheaply: nothing in the first two milestones depends on the answer. |
 | D14 | 2026-10-22 | An effective budget at or below 0 allocates nothing; the Dashboard shows the shortfall warnings plus a no-payments card instead of the empty state. | Someone whose expenses exceed their income needs the warnings most; the shortfall branch produced negative payments for a negative budget. |
+| D15 | 2026-10-22 | The priority score for plain (non-deferred) promos is unchanged (§7.5, option A on issue #31). | Urgency grows as the deadline nears, so a cheap, high-rate debt is cleared first and the promo balance takes over about three months out. That is the interest-minimizing order in the worked example, and missing a plain promo costs only the remaining balance's interest. |
 
 ---
 
