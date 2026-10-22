@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/ChrispyCode21/DebtVision_v1/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrispyCode21/DebtVision_v1/actions/workflows/ci.yml)
 
+> **Status: on hold (October 2026).** V1 is complete and usable. V2 (Cloudflare, offline sync, Plaid) is specified in [SPEC.md](SPEC.md) §9 but is not under active development. The nightshift builder skips issues labeled `on-hold`; remove that label from #35 and #36 to resume.
+
 A debt payoff optimizer that produces a personalized, month-by-month payment plan across multiple debts. It accounts for promotional APR windows, deferred-interest traps, and budget constraints that generic snowball/avalanche calculators ignore.
 
 ## Why This Exists
