@@ -37,13 +37,15 @@ jobs:
           set -euo pipefail
           changed=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)')
           # Labels are only added: the owner removes one.
-          # The user's saved data: the localStorage schema, migration and persistence code.
-          if grep -qE '^src/services/storage' <<<"$changed"; then
+          # The user's data: D1 migrations, the Worker (queries, auth, user scoping, Plaid) and the
+          # localStorage schema while it still exists. Merging a migration PR deploys it.
+          if grep -qE '^(migrations/|worker/|src/services/storage)' <<<"$changed"; then
             gh api -X POST "repos/$REPO/issues/$PR/labels" -f 'labels[]=touches-data' >/dev/null
           fi
-          # What decides "green": lint, type and test config, and the workflows and rulesets that
-          # run and require the checks.
-          if grep -qE '^(eslint\.config\.js$|tsconfig[^/]*\.json$|vite\.config\.ts$|vitest\.config\.ts$|src/test-setup\.ts$|\.github/(workflows|rulesets)/)' <<<"$changed"; then
+          # What decides "green" or what ships: lint, type and test config, the scripts that run in
+          # CI or the Cloudflare build, the Worker and hosting config, security headers, and the
+          # workflows and rulesets that run and require the checks.
+          if grep -qE '^(eslint\.config\.js$|tsconfig[^/]*\.json$|vite\.config\.ts$|vitest\.config\.ts$|src/test-setup\.ts$|scripts/|wrangler[^/]*\.jsonc$|public/_headers$|\.github/(workflows|rulesets)/)' <<<"$changed"; then
             gh api -X POST "repos/$REPO/issues/$PR/labels" -f 'labels[]=touches-gates' >/dev/null
           fi
 
