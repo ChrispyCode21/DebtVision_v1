@@ -1,5 +1,5 @@
 import type { Debt, Strategy } from '@/types'
-import { useSimulation } from './useSimulation'
+import { hasNoPayments, useSimulation } from './useSimulation'
 import WarningBanner from './WarningBanner'
 import SummaryStats from './SummaryStats'
 import ActionPlan from './ActionPlan'
@@ -53,6 +53,19 @@ export default function Dashboard({ debts, monthlyBudget, strategy }: DashboardP
           Once you enter your debts and a monthly payment budget, your personalised payoff
           plan will appear here.
         </p>
+      </div>
+    )
+  }
+
+  if (hasNoPayments(result)) {
+    return (
+      <div className="space-y-6 p-4 sm:p-6">
+        <WarningBanner warnings={result.warnings} />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-base font-semibold text-gray-900">
+            No payments possible at this budget
+          </p>
+        </div>
       </div>
     )
   }
